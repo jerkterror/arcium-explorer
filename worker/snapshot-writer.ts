@@ -1,5 +1,6 @@
 import { count, eq, and } from "drizzle-orm";
 import { createLogger } from "./logger";
+import { upsertProgram } from "@/lib/indexer/upsert";
 import type { Network } from "@/types";
 
 const log = createLogger("snapshots");
@@ -67,6 +68,47 @@ async function writeSnapshot(network: Network): Promise<void> {
   });
 }
 
+async function aggregatePrograms(network: Network): Promise<void> {
+  const { db, schema } = await getDb();
+
+  const mxeRows = await db
+    .select({
+      address: schema.mxeAccounts.address,
+      mxeProgramId: schema.mxeAccounts.mxeProgramId,
+      compDefOffsets: schema.mxeAccounts.compDefOffsets,
+    })
+    .from(schema.mxeAccounts)
+    .where(eq(schema.mxeAccounts.network, network));
+
+  let upserted = 0;
+  for (const mxe of mxeRows) {
+    const compDefCount = Array.isArray(mxe.compDefOffsets)
+      ? mxe.compDefOffsets.length
+      : 0;
+
+    const [compCount] = await db
+      .select({ count: count() })
+      .from(schema.computations)
+      .where(
+        and(
+          eq(schema.computations.mxeProgramId, mxe.mxeProgramId),
+          eq(schema.computations.network, network)
+        )
+      );
+
+    await upsertProgram(
+      mxe.mxeProgramId,
+      mxe.address,
+      network,
+      compDefCount,
+      compCount.count
+    );
+    upserted++;
+  }
+
+  log.info("Programs aggregated", { network, count: upserted });
+}
+
 export class SnapshotWriter {
   private intervalMs: number;
   private networks: Network[];
@@ -109,6 +151,14 @@ export class SnapshotWriter {
         await writeSnapshot(network);
       } catch (error) {
         log.error("Snapshot write failed", {
+          network,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+      try {
+        await aggregatePrograms(network);
+      } catch (error) {
+        log.error("Program aggregation failed", {
           network,
           error: error instanceof Error ? error.message : String(error),
         });
