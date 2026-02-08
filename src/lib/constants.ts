@@ -9,6 +9,10 @@ export const DEFAULT_NETWORK = "devnet" as const;
 export const DEFAULT_PAGE_SIZE = 20;
 export const INDEXER_INTERVAL_MS = 30_000;
 
+// gRPC / Worker config
+export const MAINNET_GRPC_ENDPOINT = process.env.MAINNET_GRPC_ENDPOINT || "poc-rpc.layer33.com:10000";
+export const MAINNET_GRPC_TOKEN = process.env.MAINNET_GRPC_TOKEN || undefined;
+
 export const STATUS_COLORS = {
   queued: {
     bg: "bg-status-queued/10",
