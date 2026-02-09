@@ -441,6 +441,7 @@ export interface ParsedComputation {
   payer: string;
   mxeProgramId: string | null;
   status: "queued" | "executing" | "finalized" | "failed";
+  slot: number;
   queuedAt: Date | null;
   executingAt: Date | null;
   finalizedAt: Date | null;
@@ -490,6 +491,7 @@ export function parseComputationAccount(data: Buffer | Uint8Array): ParsedComput
       payer,
       mxeProgramId,
       status,
+      slot,
       queuedAt: null,
       executingAt: null,
       finalizedAt: null,

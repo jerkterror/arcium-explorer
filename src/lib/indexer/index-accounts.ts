@@ -86,9 +86,28 @@ export async function indexComputations(network: Network): Promise<number> {
   const accounts = await fetchAccountsByType(connection, "ComputationAccount");
   let indexed = 0;
 
+  // Cache slot→timestamp to avoid duplicate RPC calls
+  const slotTimeCache = new Map<number, Date | null>();
+
   for (const { pubkey, account } of accounts) {
     const parsed = parseComputationAccount(account.data);
     if (!parsed) continue;
+
+    // Resolve slot to on-chain timestamp
+    if (parsed.slot > 0 && !parsed.queuedAt) {
+      if (!slotTimeCache.has(parsed.slot)) {
+        try {
+          const blockTime = await connection.getBlockTime(parsed.slot);
+          slotTimeCache.set(
+            parsed.slot,
+            blockTime ? new Date(blockTime * 1000) : null
+          );
+        } catch {
+          slotTimeCache.set(parsed.slot, null);
+        }
+      }
+      parsed.queuedAt = slotTimeCache.get(parsed.slot) ?? null;
+    }
 
     await upsertComputation(pubkey.toBase58(), parsed, network);
     indexed++;
