@@ -14,24 +14,24 @@ const STATUS_COLORS_HEX = {
 };
 
 const HOVER_BORDER_COLOR = "#e8e8f0";
-const TARGET_CELL_SIZE = 16;
 const GAP = 3;
+const MAX_SIDE = 30;
+const MAX_CELLS = MAX_SIDE * MAX_SIDE;
 
 interface GridDimensions {
-  cols: number;
-  rows: number;
+  side: number;
   cellSize: number;
-  width: number;
-  height: number;
+  canvasSize: number;
 }
 
-function computeDimensions(containerWidth: number): GridDimensions {
-  const cellSize = TARGET_CELL_SIZE;
-  const cols = Math.max(1, Math.floor(containerWidth / (cellSize + GAP)));
-  const usedWidth = cols * (cellSize + GAP) - GAP;
-  const rows = Math.max(1, Math.floor(usedWidth / (cellSize + GAP)));
-  const height = rows * (cellSize + GAP) - GAP;
-  return { cols, rows, cellSize, width: usedWidth, height };
+function computeDimensions(
+  containerWidth: number,
+  count: number
+): GridDimensions {
+  const side = Math.min(MAX_SIDE, Math.max(1, Math.ceil(Math.sqrt(count))));
+  const cellSize = Math.floor((containerWidth - GAP * (side - 1)) / side);
+  const canvasSize = side * cellSize + GAP * (side - 1);
+  return { side, cellSize, canvasSize };
 }
 
 interface ComputationGridProps {
@@ -43,15 +43,19 @@ export function ComputationGrid({ className }: ComputationGridProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const network = useNetwork();
-  const [dims, setDims] = useState<GridDimensions | null>(null);
+  const [containerWidth, setContainerWidth] = useState<number>(0);
   const [hoveredIndex, setHoveredIndex] = useState<number>(-1);
 
-  const limit = dims ? Math.min(dims.cols * dims.rows, 500) : 200;
-  const { data: response } = useComputations(1, limit);
+  const { data: response } = useComputations(1, MAX_CELLS);
   const computations = (response?.data || []) as Array<{
     status: keyof typeof STATUS_COLORS_HEX;
     address: string;
   }>;
+
+  const dims =
+    containerWidth > 0 && computations.length > 0
+      ? computeDimensions(containerWidth, computations.length)
+      : null;
 
   // Observe container size
   useEffect(() => {
@@ -62,9 +66,7 @@ export function ComputationGrid({ className }: ComputationGridProps) {
       const entry = entries[0];
       if (!entry) return;
       const width = entry.contentRect.width;
-      if (width > 0) {
-        setDims(computeDimensions(width));
-      }
+      if (width > 0) setContainerWidth(width);
     });
 
     observer.observe(wrapper);
@@ -78,20 +80,22 @@ export function ComputationGrid({ className }: ComputationGridProps) {
     if (!ctx) return;
 
     const dpr = window.devicePixelRatio || 1;
-    const { cols, rows, cellSize, width, height } = dims;
-    const totalCells = cols * rows;
+    const { side, cellSize, canvasSize } = dims;
+    const totalCells = side * side;
 
-    canvas.width = width * dpr;
-    canvas.height = height * dpr;
-    canvas.style.width = `${width}px`;
-    canvas.style.height = `${height}px`;
+    canvas.width = canvasSize * dpr;
+    canvas.height = canvasSize * dpr;
+    canvas.style.width = `${canvasSize}px`;
+    canvas.style.height = `${canvasSize}px`;
     ctx.scale(dpr, dpr);
 
-    ctx.clearRect(0, 0, width, height);
+    ctx.clearRect(0, 0, canvasSize, canvasSize);
+
+    const radius = Math.max(2, Math.round(cellSize * 0.12));
 
     for (let i = 0; i < totalCells; i++) {
-      const col = i % cols;
-      const row = Math.floor(i / cols);
+      const col = i % side;
+      const row = Math.floor(i / side);
       const x = col * (cellSize + GAP);
       const y = row * (cellSize + GAP);
 
@@ -106,7 +110,7 @@ export function ComputationGrid({ className }: ComputationGridProps) {
       }
 
       ctx.beginPath();
-      ctx.roundRect(x, y, cellSize, cellSize, 2);
+      ctx.roundRect(x, y, cellSize, cellSize, radius);
       ctx.fill();
 
       // Hover highlight
@@ -115,7 +119,13 @@ export function ComputationGrid({ className }: ComputationGridProps) {
         ctx.strokeStyle = HOVER_BORDER_COLOR;
         ctx.lineWidth = 1.5;
         ctx.beginPath();
-        ctx.roundRect(x - 0.5, y - 0.5, cellSize + 1, cellSize + 1, 2.5);
+        ctx.roundRect(
+          x - 0.5,
+          y - 0.5,
+          cellSize + 1,
+          cellSize + 1,
+          radius + 0.5
+        );
         ctx.stroke();
       }
     }
@@ -135,9 +145,9 @@ export function ComputationGrid({ className }: ComputationGridProps) {
       const y = e.clientY - rect.top;
       const col = Math.floor(x / (dims.cellSize + GAP));
       const row = Math.floor(y / (dims.cellSize + GAP));
-      if (col < 0 || col >= dims.cols || row < 0 || row >= dims.rows)
+      if (col < 0 || col >= dims.side || row < 0 || row >= dims.side)
         return -1;
-      return row * dims.cols + col;
+      return row * dims.side + col;
     },
     [dims]
   );
@@ -166,16 +176,6 @@ export function ComputationGrid({ className }: ComputationGridProps) {
     setHoveredIndex(-1);
   }, []);
 
-  if (!dims) {
-    return (
-      <div ref={wrapperRef} className={cn("aspect-square w-full", className)}>
-        <div className="flex h-full items-center justify-center text-sm text-text-muted">
-          Loading grid...
-        </div>
-      </div>
-    );
-  }
-
   if (computations.length === 0) {
     return (
       <div ref={wrapperRef} className={cn("aspect-square w-full", className)}>
@@ -186,6 +186,16 @@ export function ComputationGrid({ className }: ComputationGridProps) {
               Computations will appear here as they are discovered
             </p>
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!dims) {
+    return (
+      <div ref={wrapperRef} className={cn("aspect-square w-full", className)}>
+        <div className="flex h-full items-center justify-center text-sm text-text-muted">
+          Loading grid...
         </div>
       </div>
     );
