@@ -34,17 +34,23 @@ async function writeSnapshot(network: Network): Promise<void> {
     .from(schema.computations)
     .where(eq(schema.computations.network, network));
 
-  // Approximate computations per minute: count finalized in last 5 minutes / 5
+  // Approximate computations per minute: count computations queued in last 5 min / 5
+  // Prefer queuedAt (on-chain); for rows where queuedAt is null, fall back to createdAt
   const fiveMinAgo = new Date(Date.now() - 5 * 60_000);
-  const { gte } = await import("drizzle-orm");
+  const { gte, or, isNull } = await import("drizzle-orm");
   const [recentCount] = await db
     .select({ count: count() })
     .from(schema.computations)
     .where(
       and(
         eq(schema.computations.network, network),
-        eq(schema.computations.status, "finalized"),
-        gte(schema.computations.finalizedAt, fiveMinAgo)
+        or(
+          gte(schema.computations.queuedAt, fiveMinAgo),
+          and(
+            isNull(schema.computations.queuedAt),
+            gte(schema.computations.createdAt, fiveMinAgo)
+          )
+        )
       )
     );
 
