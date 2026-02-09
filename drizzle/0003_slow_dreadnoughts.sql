@@ -1,0 +1,2 @@
+ALTER TABLE "computations" ADD COLUMN "is_scaffold" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+CREATE INDEX "computations_scaffold_idx" ON "computations" USING btree ("is_scaffold","network");
