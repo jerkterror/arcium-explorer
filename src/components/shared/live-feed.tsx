@@ -114,7 +114,7 @@ export function LiveFeed() {
         {sseConnected ? "Live" : "Polling"}
       </div>
       {/* Column headers */}
-      <div className="grid grid-cols-[auto_1fr_auto_1fr_1fr_auto] items-center gap-x-3 border-b border-border-muted px-2 pb-2 text-[10px] font-medium uppercase tracking-wider text-text-muted">
+      <div className="grid grid-cols-[8px_1fr_1fr_1fr_1fr_auto] items-center gap-x-4 border-b border-border-muted px-2 pb-2 text-[10px] font-medium uppercase tracking-wider text-text-muted">
         <span />
         <span>Address</span>
         <span>Offset</span>
@@ -128,7 +128,7 @@ export function LiveFeed() {
           <Link
             key={comp.address}
             href={`/computations/${comp.address}?network=${network}`}
-            className="grid grid-cols-[auto_1fr_auto_1fr_1fr_auto] items-center gap-x-3 rounded-md px-2 py-1.5 transition-colors hover:bg-bg-elevated"
+            className="grid grid-cols-[8px_1fr_1fr_1fr_1fr_auto] items-center gap-x-4 rounded-md px-2 py-1.5 transition-colors hover:bg-bg-elevated"
           >
             <span
               className={`h-2 w-2 shrink-0 rounded-full ${
