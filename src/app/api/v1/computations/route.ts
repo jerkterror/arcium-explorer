@@ -11,12 +11,20 @@ export async function GET(req: NextRequest) {
   const statusFilter = req.nextUrl.searchParams.get("status") as ComputationStatus | null;
   const clusterFilter = req.nextUrl.searchParams.get("cluster");
   const programFilter = req.nextUrl.searchParams.get("program");
+  const scaffoldFilter = req.nextUrl.searchParams.get("scaffold");
 
   try {
     const { db } = await import("@/lib/db");
     const { computations } = await import("@/lib/db/schema");
 
     let whereClause = eq(computations.network, network);
+
+    // scaffold filter: omitted or "false" → exclude, "true" → only scaffolds, "all" → no filter
+    if (scaffoldFilter === "true") {
+      whereClause = and(whereClause, eq(computations.isScaffold, true))!;
+    } else if (scaffoldFilter !== "all") {
+      whereClause = and(whereClause, eq(computations.isScaffold, false))!;
+    }
 
     if (statusFilter && ["queued", "executing", "finalized", "failed"].includes(statusFilter)) {
       whereClause = and(whereClause, eq(computations.status, statusFilter))!;

@@ -441,6 +441,7 @@ export interface ParsedComputation {
   payer: string;
   mxeProgramId: string | null;
   status: "queued" | "executing" | "finalized" | "failed";
+  isScaffold: boolean;
   slot: number;
   queuedAt: Date | null;
   executingAt: Date | null;
@@ -485,12 +486,16 @@ export function parseComputationAccount(data: Buffer | Uint8Array): ParsedComput
     // computationOffset: store comp_def_offset as string identifier
     const computationOffset = defOffset.toString();
 
+    // Scaffold computations are created by init_mxe_part2 with payer = system program
+    const isScaffold = payer === "11111111111111111111111111111111";
+
     return {
       computationOffset,
       clusterOffset: 0, // cluster derived via MXE join, not stored on computation
       payer,
       mxeProgramId,
       status,
+      isScaffold,
       slot,
       queuedAt: null,
       executingAt: null,

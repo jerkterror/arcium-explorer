@@ -207,6 +207,7 @@ export async function upsertComputation(
     payer: parsed.payer,
     mxeProgramId: parsed.mxeProgramId,
     status: parsed.status,
+    isScaffold: parsed.isScaffold,
     queuedAt: parsed.queuedAt,
     executingAt: parsed.executingAt,
     finalizedAt: parsed.finalizedAt,

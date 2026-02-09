@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { getNetwork } from "@/lib/api-helpers";
 
 export const dynamic = "force-dynamic";
@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
         const recent = await db
           .select()
           .from(schema.computations)
-          .where(eq(schema.computations.network, network))
+          .where(and(eq(schema.computations.network, network), eq(schema.computations.isScaffold, false)))
           .orderBy(desc(schema.computations.createdAt))
           .limit(10);
 
@@ -42,7 +42,7 @@ export async function GET(req: NextRequest) {
           const recent = await db
             .select()
             .from(schema.computations)
-            .where(eq(schema.computations.network, network))
+            .where(and(eq(schema.computations.network, network), eq(schema.computations.isScaffold, false)))
             .orderBy(desc(schema.computations.createdAt))
             .limit(5);
 

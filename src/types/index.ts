@@ -72,6 +72,7 @@ export interface Computation {
   payer: string;
   mxeProgramId: string | null;
   status: ComputationStatus;
+  isScaffold: boolean;
   queuedAt: string | null;
   executingAt: string | null;
   finalizedAt: string | null;

@@ -32,7 +32,7 @@ async function writeSnapshot(network: Network): Promise<void> {
   const [computationCount] = await db
     .select({ count: count() })
     .from(schema.computations)
-    .where(eq(schema.computations.network, network));
+    .where(and(eq(schema.computations.network, network), eq(schema.computations.isScaffold, false)));
 
   // Approximate computations per minute: count computations queued in last 5 min / 5
   // Prefer queuedAt (on-chain); for rows where queuedAt is null, fall back to createdAt
@@ -44,6 +44,7 @@ async function writeSnapshot(network: Network): Promise<void> {
     .where(
       and(
         eq(schema.computations.network, network),
+        eq(schema.computations.isScaffold, false),
         or(
           gte(schema.computations.queuedAt, fiveMinAgo),
           and(
@@ -98,7 +99,8 @@ async function aggregatePrograms(network: Network): Promise<void> {
       .where(
         and(
           eq(schema.computations.mxeProgramId, mxe.mxeProgramId),
-          eq(schema.computations.network, network)
+          eq(schema.computations.network, network),
+          eq(schema.computations.isScaffold, false)
         )
       );
 

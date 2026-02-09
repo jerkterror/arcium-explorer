@@ -6,6 +6,7 @@ import { useMxe } from "@/lib/hooks/use-api";
 import { useNetwork } from "@/lib/hooks/use-network";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { AddressDisplay } from "@/components/shared/address-display";
+import type { ComputationStatus } from "@/types";
 import Link from "next/link";
 
 function MxeDetailContent() {
@@ -19,6 +20,11 @@ function MxeDetailContent() {
     defOffset: number;
     cuAmount: number;
     isCompleted: boolean;
+  }>;
+  const scaffoldComputations = (mxe?.scaffoldComputations || []) as Array<{
+    address: string;
+    computationOffset: string;
+    status: string;
   }>;
 
   if (isLoading) {
@@ -88,6 +94,28 @@ function MxeDetailContent() {
                 <div className="flex items-center gap-3 text-xs text-text-muted">
                   <span>Offset: {def.defOffset}</span>
                   <span>CU: {def.cuAmount}</span>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {scaffoldComputations.length > 0 && (
+        <div className="rounded-lg border border-border-primary bg-bg-surface p-4 space-y-3">
+          <h2 className="text-sm font-medium text-text-secondary">Initialization Accounts ({scaffoldComputations.length})</h2>
+          <p className="text-xs text-text-muted">Scaffold computation accounts created during MXE initialization. These are excluded from feeds and statistics.</p>
+          <div className="space-y-2">
+            {scaffoldComputations.map((comp) => (
+              <Link
+                key={comp.address}
+                href={`/computations/${comp.address}?network=${network}`}
+                className="flex items-center justify-between rounded-md border border-border-muted p-3 hover:bg-bg-elevated/50 transition-colors"
+              >
+                <AddressDisplay address={comp.address} showCopy={false} />
+                <div className="flex items-center gap-3 text-xs text-text-muted">
+                  <span>Offset: {comp.computationOffset}</span>
+                  <StatusBadge status={comp.status as ComputationStatus} />
                 </div>
               </Link>
             ))}

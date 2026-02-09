@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { eq, and } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 import { getNetwork, jsonResponse, errorResponse } from "@/lib/api-helpers";
 
 export const dynamic = "force-dynamic";
@@ -41,8 +41,21 @@ export async function GET(
         )
       );
 
+    // Fetch scaffold computations for this MXE
+    const scaffoldComputations = await db
+      .select()
+      .from(schema.computations)
+      .where(
+        and(
+          eq(schema.computations.mxeProgramId, mxe.mxeProgramId),
+          eq(schema.computations.network, network),
+          eq(schema.computations.isScaffold, true)
+        )
+      )
+      .orderBy(desc(schema.computations.createdAt));
+
     return jsonResponse(
-      { ...mxe, computationDefinitions: compDefs },
+      { ...mxe, computationDefinitions: compDefs, scaffoldComputations },
       { network }
     );
   } catch (error) {

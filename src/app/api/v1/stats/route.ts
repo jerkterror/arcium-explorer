@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
     const [computationCount] = await db
       .select({ count: count() })
       .from(schema.computations)
-      .where(eq(schema.computations.network, network));
+      .where(and(eq(schema.computations.network, network), eq(schema.computations.isScaffold, false)));
 
     const [queuedCount] = await db
       .select({ count: count() })
@@ -39,7 +39,8 @@ export async function GET(req: NextRequest) {
       .where(
         and(
           eq(schema.computations.network, network),
-          eq(schema.computations.status, "queued")
+          eq(schema.computations.status, "queued"),
+          eq(schema.computations.isScaffold, false)
         )
       );
 
@@ -49,7 +50,8 @@ export async function GET(req: NextRequest) {
       .where(
         and(
           eq(schema.computations.network, network),
-          eq(schema.computations.status, "executing")
+          eq(schema.computations.status, "executing"),
+          eq(schema.computations.isScaffold, false)
         )
       );
 
@@ -59,7 +61,8 @@ export async function GET(req: NextRequest) {
       .where(
         and(
           eq(schema.computations.network, network),
-          eq(schema.computations.status, "finalized")
+          eq(schema.computations.status, "finalized"),
+          eq(schema.computations.isScaffold, false)
         )
       );
 

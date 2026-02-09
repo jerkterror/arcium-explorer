@@ -58,13 +58,14 @@ export function useNode(offset: number) {
 export function useComputations(
   page = 1,
   limit = 20,
-  filters?: { status?: string; cluster?: number; program?: string }
+  filters?: { status?: string; cluster?: number; program?: string; scaffold?: string }
 ) {
   const network = useNetwork();
   const params = new URLSearchParams({ page: String(page), limit: String(limit) });
   if (filters?.status) params.set("status", filters.status);
   if (filters?.cluster !== undefined) params.set("cluster", String(filters.cluster));
   if (filters?.program) params.set("program", filters.program);
+  if (filters?.scaffold) params.set("scaffold", filters.scaffold);
   return useQuery({
     queryKey: ["computations", network, page, limit, filters],
     queryFn: () => fetchApi(`/api/v1/computations?${params}`, network),

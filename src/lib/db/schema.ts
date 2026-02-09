@@ -137,6 +137,7 @@ export const computations = pgTable(
     payer: varchar("payer", { length: 64 }).notNull(),
     mxeProgramId: varchar("mxe_program_id", { length: 64 }),
     status: computationStatusEnum("status").notNull().default("queued"),
+    isScaffold: boolean("is_scaffold").notNull().default(false),
     queuedAt: timestamp("queued_at"),
     executingAt: timestamp("executing_at"),
     finalizedAt: timestamp("finalized_at"),
@@ -154,6 +155,7 @@ export const computations = pgTable(
     index("computations_payer_idx").on(table.payer, table.network),
     index("computations_program_idx").on(table.mxeProgramId, table.network),
     index("computations_network_idx").on(table.network),
+    index("computations_scaffold_idx").on(table.isScaffold, table.network),
   ]
 );
 
