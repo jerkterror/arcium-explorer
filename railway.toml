@@ -1,10 +1,19 @@
-[build]
+[services.web.build]
 builder = "RAILPACK"
 buildCommand = "npm run build"
 
-[deploy]
+[services.web.deploy]
 startCommand = "npm run start"
 healthcheckPath = "/api/v1/stats"
 healthcheckTimeout = 120
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5
+
+[services.worker.build]
+builder = "RAILPACK"
+buildCommand = "npm install"
+
+[services.worker.deploy]
+startCommand = "npx tsx --tsconfig worker/tsconfig.json worker/main.ts"
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 5
