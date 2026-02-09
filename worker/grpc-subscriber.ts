@@ -7,12 +7,6 @@ import { PublicKey } from "@solana/web3.js";
 
 const log = createLogger("grpc");
 
-// Known proto deserialization error for large slot numbers.
-// The NAPI binding in @triton-one/yellowstone-grpc v5 deserializes
-// slot as i32 but mainnet slots exceed i32 range (~1.77 trillion).
-// This error is non-fatal — reconnect immediately.
-const SLOT_OVERFLOW_PATTERN = /expected i32/;
-
 export interface GrpcSubscriberConfig {
   endpoint: string;
   token?: string;
@@ -26,6 +20,7 @@ export class GrpcSubscriber {
   private running = false;
   private reconnectDelay = 1000;
   private readonly MAX_RECONNECT_DELAY = 60_000;
+  private client: Client | null = null;
 
   constructor(config: GrpcSubscriberConfig) {
     this.endpoint = config.endpoint;
@@ -47,36 +42,34 @@ export class GrpcSubscriber {
         if (!this.running) break;
 
         const msg = error instanceof Error ? error.message : String(error);
-        const isSlotOverflow = SLOT_OVERFLOW_PATTERN.test(msg);
-
-        if (isSlotOverflow) {
-          // Known proto bug — reconnect immediately with minimal delay
-          log.debug("gRPC slot overflow, reconnecting", { retryInMs: 500 });
-          await this.sleep(500);
-          // Don't increase reconnect delay for this error
-        } else {
-          log.error("gRPC subscription error, reconnecting", {
-            error: msg,
-            retryInMs: this.reconnectDelay,
-          });
-          await this.sleep(this.reconnectDelay);
-          this.reconnectDelay = Math.min(
-            this.reconnectDelay * 2,
-            this.MAX_RECONNECT_DELAY
-          );
-        }
+        log.error("gRPC subscription error, reconnecting", {
+          error: msg,
+          retryInMs: this.reconnectDelay,
+        });
+        await this.sleep(this.reconnectDelay);
+        this.reconnectDelay = Math.min(
+          this.reconnectDelay * 2,
+          this.MAX_RECONNECT_DELAY
+        );
       }
     }
 
     log.info("gRPC subscriber stopped");
   }
 
+  private ensureClient(): Client {
+    if (!this.client) {
+      this.client = new Client(this.endpoint, this.token, {
+        grpcHttp2KeepAliveInterval: 120_000,
+        grpcKeepAliveTimeout: 10_000,
+        grpcKeepAliveWhileIdle: true,
+      });
+    }
+    return this.client;
+  }
+
   private async subscribe(): Promise<void> {
-    const client = new Client(this.endpoint, this.token, {
-      grpcHttp2KeepAliveInterval: 30_000,
-      grpcKeepAliveTimeout: 10_000,
-      grpcKeepAliveWhileIdle: true,
-    });
+    const client = this.ensureClient();
 
     await client.connect();
     log.info("gRPC connected", { endpoint: this.endpoint });
@@ -110,92 +103,62 @@ export class GrpcSubscriber {
 
     let accountsProcessed = 0;
 
-    // Set up a ping interval
-    const pingInterval = setInterval(() => {
-      if (!this.running) return;
-      try {
-        stream.write({
-          accounts: {},
-          slots: {},
-          transactions: {},
-          transactionsStatus: {},
-          blocks: {},
-          blocksMeta: {},
-          entry: {},
-          ping: { id: Date.now() },
-        });
-      } catch {
-        // Stream may be closed, ignore
-      }
-    }, 30_000);
-
-    try {
-      await new Promise<void>((resolve, reject) => {
-        stream.on("data", async (update: Record<string, unknown>) => {
-          try {
-            if (update.pong) {
-              log.debug("Received pong");
-              return;
-            }
-
-            if (update.account) {
-              const accountUpdate = update.account as {
-                account: {
-                  pubkey: Uint8Array;
-                  data: Uint8Array;
-                  owner: Uint8Array;
-                };
-                slot: string;
-                isStartup: boolean;
+    await new Promise<void>((resolve, reject) => {
+      stream.on("data", async (update: Record<string, unknown>) => {
+        try {
+          if (update.account) {
+            const accountUpdate = update.account as {
+              account: {
+                pubkey: Uint8Array;
+                data: Uint8Array;
+                owner: Uint8Array;
               };
+              slot: string;
+              isStartup: boolean;
+            };
 
-              const info = accountUpdate.account;
-              if (!info?.data || !info?.pubkey) return;
+            const info = accountUpdate.account;
+            if (!info?.data || !info?.pubkey) return;
 
-              const address = new PublicKey(info.pubkey).toBase58();
+            const address = new PublicKey(info.pubkey).toBase58();
 
-              await processAccountUpdate({
-                address,
-                data: info.data,
+            await processAccountUpdate({
+              address,
+              data: info.data,
+              network: this.network,
+            });
+
+            accountsProcessed++;
+            if (accountsProcessed % 100 === 0) {
+              log.info("gRPC accounts processed", {
+                count: accountsProcessed,
                 network: this.network,
               });
-
-              accountsProcessed++;
-              if (accountsProcessed % 100 === 0) {
-                log.info("gRPC accounts processed", {
-                  count: accountsProcessed,
-                  network: this.network,
-                });
-              }
             }
-          } catch (error) {
-            log.error("Error processing gRPC update", {
-              error: error instanceof Error ? error.message : String(error),
-            });
           }
-        });
-
-        stream.on("error", (err: Error) => {
-          const isSlotOverflow = SLOT_OVERFLOW_PATTERN.test(err.message);
-          if (!isSlotOverflow) {
-            log.error("gRPC stream error", { error: err.message });
-          }
-          reject(err);
-        });
-
-        stream.on("end", () => {
-          log.warn("gRPC stream ended");
-          resolve();
-        });
-
-        stream.on("close", () => {
-          log.warn("gRPC stream closed");
-          resolve();
-        });
+        } catch (error) {
+          log.error("Error processing gRPC update", {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
       });
-    } finally {
-      clearInterval(pingInterval);
-    }
+
+      stream.on("error", (err: Error) => {
+        log.error("gRPC stream error", { error: err.message });
+        this.client = null;
+        reject(err);
+      });
+
+      stream.on("end", () => {
+        log.debug("gRPC stream ended");
+        resolve();
+      });
+
+      stream.on("close", () => {
+        log.debug("gRPC stream closed");
+        resolve();
+      });
+    });
   }
 
   stop(): void {
