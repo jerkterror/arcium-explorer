@@ -1,6 +1,8 @@
 import { createLogger } from "./logger";
 import { PollingIndexer } from "./polling-indexer";
 import { GrpcSubscriber } from "./grpc-subscriber";
+import { WsSubscriber } from "./ws-subscriber";
+import { TxEnricher } from "./tx-enricher";
 import { SnapshotWriter } from "./snapshot-writer";
 import type { Network } from "@/types";
 
@@ -13,8 +15,9 @@ const MAINNET_RPC_URL = process.env.MAINNET_RPC_URL || "https://poc-rpc.layer33.
 const DEVNET_RPC_URL = process.env.DEVNET_RPC_URL || "https://api.devnet.solana.com";
 const MAINNET_GRPC_ENDPOINT = process.env.MAINNET_GRPC_ENDPOINT || "https://poc-rpc.layer33.com:10000";
 const MAINNET_GRPC_TOKEN = process.env.MAINNET_GRPC_TOKEN || undefined;
+const DEVNET_WS_URL = process.env.DEVNET_WS_URL || undefined;
 
-const DEVNET_POLL_INTERVAL = 30_000;         // 30s
+const DEVNET_POLL_INTERVAL = 2 * 60_000;     // 2min (fallback, WS is primary)
 const MAINNET_POLL_INTERVAL = 5 * 60_000;    // 5min (consistency check, gRPC is primary)
 const SNAPSHOT_INTERVAL = 5 * 60_000;        // 5min
 const HEARTBEAT_INTERVAL = 60_000;           // 1min
@@ -36,6 +39,7 @@ async function main(): Promise<void> {
     enableDevnet: ENABLE_DEVNET,
     mainnetRpc: MAINNET_RPC_URL,
     devnetRpc: DEVNET_RPC_URL,
+    devnetWsUrl: DEVNET_WS_URL ?? "(derived from rpcUrl)",
     grpcEndpoint: MAINNET_GRPC_ENDPOINT,
   });
 
@@ -68,12 +72,34 @@ async function main(): Promise<void> {
     mainnetPoller.start();
     services.push(mainnetPoller);
 
-    log.info("Mainnet indexing enabled (gRPC + polling)");
+    // TX signature enricher for mainnet
+    const mainnetEnricher = new TxEnricher({
+      rpcUrl: MAINNET_RPC_URL,
+      network: "mainnet",
+      batchSize: 10,
+      rateLimitMs: 200, // conservative for Layer33
+    });
+    mainnetEnricher.start();
+    services.push(mainnetEnricher);
+
+    log.info("Mainnet indexing enabled (gRPC + polling + tx enricher)");
   }
 
   if (ENABLE_DEVNET) {
     activeNetworks.push("devnet");
 
+    // Primary: WebSocket subscription for real-time updates
+    const wsSub = new WsSubscriber({
+      rpcUrl: DEVNET_RPC_URL,
+      wsUrl: DEVNET_WS_URL,
+      network: "devnet",
+    });
+    services.push(wsSub);
+    wsSub.start().catch((err) =>
+      log.error("WS subscriber fatal error", { error: String(err) })
+    );
+
+    // Secondary: slow polling for consistency checks
     const devnetPoller = new PollingIndexer({
       rpcUrl: DEVNET_RPC_URL,
       network: "devnet",
@@ -82,7 +108,17 @@ async function main(): Promise<void> {
     devnetPoller.start();
     services.push(devnetPoller);
 
-    log.info("Devnet indexing enabled (polling)");
+    // TX signature enricher for devnet
+    const devnetEnricher = new TxEnricher({
+      rpcUrl: DEVNET_RPC_URL,
+      network: "devnet",
+      batchSize: 10,
+      rateLimitMs: 100,
+    });
+    devnetEnricher.start();
+    services.push(devnetEnricher);
+
+    log.info("Devnet indexing enabled (WS + polling + tx enricher)");
   }
 
   // Snapshot writer (captures time-series data)
