@@ -14,6 +14,7 @@ import {
   upsertComputationDefinition,
   upsertComputation,
 } from "./upsert";
+import { eq, and } from "drizzle-orm";
 import type { Network } from "@/types";
 
 export async function indexClusters(network: Network): Promise<number> {
@@ -86,8 +87,9 @@ export async function indexComputations(network: Network): Promise<number> {
   const accounts = await fetchAccountsByType(connection, "ComputationAccount");
   let indexed = 0;
 
-  // Cache slot→timestamp to avoid duplicate RPC calls
+  // Cache slot→timestamp and mxeProgramId→clusterOffset
   const slotTimeCache = new Map<number, Date | null>();
+  const clusterOffsetCache = new Map<string, number | null>();
 
   for (const { pubkey, account } of accounts) {
     const parsed = parseComputationAccount(account.data);
@@ -107,6 +109,36 @@ export async function indexComputations(network: Network): Promise<number> {
         }
       }
       parsed.queuedAt = slotTimeCache.get(parsed.slot) ?? null;
+    }
+
+    // Resolve clusterOffset from MXE account
+    if (parsed.mxeProgramId && parsed.clusterOffset === 0) {
+      if (!clusterOffsetCache.has(parsed.mxeProgramId)) {
+        try {
+          const { db } = await import("@/lib/db");
+          const schema = await import("@/lib/db/schema");
+          const mxe = await db
+            .select({ clusterOffset: schema.mxeAccounts.clusterOffset })
+            .from(schema.mxeAccounts)
+            .where(
+              and(
+                eq(schema.mxeAccounts.mxeProgramId, parsed.mxeProgramId),
+                eq(schema.mxeAccounts.network, network)
+              )
+            )
+            .limit(1);
+          clusterOffsetCache.set(
+            parsed.mxeProgramId,
+            mxe[0]?.clusterOffset ?? null
+          );
+        } catch {
+          clusterOffsetCache.set(parsed.mxeProgramId, null);
+        }
+      }
+      const offset = clusterOffsetCache.get(parsed.mxeProgramId);
+      if (offset !== null && offset !== undefined) {
+        parsed.clusterOffset = offset;
+      }
     }
 
     await upsertComputation(pubkey.toBase58(), parsed, network);
