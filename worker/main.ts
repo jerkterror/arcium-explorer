@@ -16,6 +16,7 @@ const DEVNET_RPC_URL = process.env.DEVNET_RPC_URL || "https://api.devnet.solana.
 const MAINNET_GRPC_ENDPOINT = process.env.MAINNET_GRPC_ENDPOINT || "https://poc-rpc.layer33.com:10000";
 const MAINNET_GRPC_TOKEN = process.env.MAINNET_GRPC_TOKEN || undefined;
 const DEVNET_WS_URL = process.env.DEVNET_WS_URL || undefined;
+const MAINNET_ENRICHER_RPC_URL = process.env.MAINNET_ENRICHER_RPC_URL || undefined;
 
 const DEVNET_POLL_INTERVAL = 2 * 60_000;     // 2min (fallback, WS is primary)
 const MAINNET_POLL_INTERVAL = 5 * 60_000;    // 5min (consistency check, gRPC is primary)
@@ -72,17 +73,20 @@ async function main(): Promise<void> {
     mainnetPoller.start();
     services.push(mainnetPoller);
 
-    // TX signature enricher for mainnet
-    const mainnetEnricher = new TxEnricher({
-      rpcUrl: MAINNET_RPC_URL,
-      network: "mainnet",
-      batchSize: 10,
-      rateLimitMs: 200, // conservative for Layer33
-    });
-    mainnetEnricher.start();
-    services.push(mainnetEnricher);
+    // TX signature enricher for mainnet (requires RPC with tx history)
+    if (MAINNET_ENRICHER_RPC_URL) {
+      const mainnetEnricher = new TxEnricher({
+        rpcUrl: MAINNET_ENRICHER_RPC_URL,
+        network: "mainnet",
+        batchSize: 10,
+        rateLimitMs: 200,
+      });
+      mainnetEnricher.start();
+      services.push(mainnetEnricher);
+      log.info("Mainnet TX enricher enabled", { rpcUrl: MAINNET_ENRICHER_RPC_URL });
+    }
 
-    log.info("Mainnet indexing enabled (gRPC + polling + tx enricher)");
+    log.info("Mainnet indexing enabled (gRPC + polling)");
   }
 
   if (ENABLE_DEVNET) {
