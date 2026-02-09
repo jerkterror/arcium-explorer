@@ -11,10 +11,10 @@ import { cn } from "@/lib/utils";
 import Link from "next/link";
 import type { ComputationStatus } from "@/types";
 
-const LIFECYCLE_STEPS: { key: string; label: string; status: ComputationStatus }[] = [
-  { key: "queuedAt", label: "Queued", status: "queued" },
-  { key: "executingAt", label: "Executing", status: "executing" },
-  { key: "finalizedAt", label: "Finalized", status: "finalized" },
+const LIFECYCLE_STEPS: { key: string; label: string; status: ComputationStatus; color: string; bgColor: string; borderColor: string }[] = [
+  { key: "queuedAt", label: "Queued", status: "queued", color: "text-status-queued", bgColor: "bg-status-queued/20", borderColor: "border-status-queued" },
+  { key: "executingAt", label: "Executing", status: "executing", color: "text-status-executing", bgColor: "bg-status-executing/20", borderColor: "border-status-executing" },
+  { key: "finalizedAt", label: "Finalized", status: "finalized", color: "text-status-finalized", bgColor: "bg-status-finalized/20", borderColor: "border-status-finalized" },
 ];
 
 function ComputationDetailContent() {
@@ -63,7 +63,7 @@ function ComputationDetailContent() {
         <h2 className="mb-4 text-sm font-medium text-text-secondary">
           Lifecycle
         </h2>
-        <div className="flex items-center gap-0">
+        <div className="flex items-center">
           {LIFECYCLE_STEPS.map((step, i) => {
             const timestamp = comp[step.key] as string | null;
             const isCompleted = !!timestamp;
@@ -71,15 +71,15 @@ function ComputationDetailContent() {
             const isFailed = status === "failed" && !isCompleted;
 
             return (
-              <div key={step.key} className="flex items-center flex-1">
-                <div className="flex flex-col items-center gap-2 flex-1">
+              <div key={step.key} className="flex items-center flex-1 last:flex-none">
+                <div className="flex flex-col items-center gap-2">
                   <div
                     className={cn(
                       "flex h-10 w-10 items-center justify-center rounded-full border-2 transition-colors",
                       isCompleted
-                        ? "border-status-finalized bg-status-finalized/20"
+                        ? `${step.borderColor} ${step.bgColor}`
                         : isCurrent
-                        ? "border-status-executing bg-status-executing/20 animate-pulse"
+                        ? `${step.borderColor} ${step.bgColor} animate-pulse`
                         : isFailed
                         ? "border-status-failed bg-status-failed/20"
                         : "border-border-primary bg-bg-elevated"
@@ -88,10 +88,8 @@ function ComputationDetailContent() {
                     <span
                       className={cn(
                         "text-xs font-medium",
-                        isCompleted
-                          ? "text-status-finalized"
-                          : isCurrent
-                          ? "text-status-executing"
+                        isCompleted || isCurrent
+                          ? step.color
                           : "text-text-muted"
                       )}
                     >
@@ -108,8 +106,8 @@ function ComputationDetailContent() {
                 {i < LIFECYCLE_STEPS.length - 1 && (
                   <div
                     className={cn(
-                      "h-0.5 flex-1 mx-2",
-                      isCompleted ? "bg-status-finalized" : "bg-border-primary"
+                      "h-0.5 flex-1 mx-4 self-start mt-5",
+                      isCompleted ? step.borderColor.replace("border-", "bg-") : "bg-border-primary"
                     )}
                   />
                 )}
