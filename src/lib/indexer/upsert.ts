@@ -1,5 +1,6 @@
 import { eq, and } from "drizzle-orm";
 import type { Network } from "@/types";
+import { deriveClusterOffset, deriveArxNodeOffset } from "@/lib/solana/pda";
 import type {
   ParsedCluster,
   ParsedArxNode,
@@ -23,7 +24,7 @@ export async function upsertCluster(
   const { db, schema } = await getDb();
 
   const existing = await db
-    .select({ id: schema.clusters.id })
+    .select({ id: schema.clusters.id, offset: schema.clusters.offset })
     .from(schema.clusters)
     .where(
       and(
@@ -46,16 +47,20 @@ export async function upsertCluster(
   };
 
   if (existing.length > 0) {
+    // If offset is still 0, try to derive it now
+    const needsOffset = existing[0].offset === 0;
+    const updateData = needsOffset
+      ? { ...data, offset: deriveClusterOffset(address) ?? 0 }
+      : data;
     await db
       .update(schema.clusters)
-      .set(data)
+      .set(updateData)
       .where(eq(schema.clusters.id, existing[0].id));
   } else {
-    // Derive offset from address or use 0 — will be refined once
-    // we can derive it from PDA seeds
+    const offset = deriveClusterOffset(address) ?? 0;
     await db.insert(schema.clusters).values({
       ...data,
-      offset: 0,
+      offset,
     });
   }
 }
@@ -68,7 +73,7 @@ export async function upsertArxNode(
   const { db, schema } = await getDb();
 
   const existing = await db
-    .select({ id: schema.arxNodes.id })
+    .select({ id: schema.arxNodes.id, offset: schema.arxNodes.offset })
     .from(schema.arxNodes)
     .where(
       and(
@@ -92,14 +97,19 @@ export async function upsertArxNode(
   };
 
   if (existing.length > 0) {
+    const needsOffset = existing[0].offset === 0;
+    const updateData = needsOffset
+      ? { ...data, offset: deriveArxNodeOffset(address) ?? 0 }
+      : data;
     await db
       .update(schema.arxNodes)
-      .set(data)
+      .set(updateData)
       .where(eq(schema.arxNodes.id, existing[0].id));
   } else {
+    const offset = deriveArxNodeOffset(address) ?? 0;
     await db.insert(schema.arxNodes).values({
       ...data,
-      offset: 0,
+      offset,
     });
   }
 }

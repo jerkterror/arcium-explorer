@@ -3,6 +3,10 @@ import { ARCIUM_PROGRAM_ID } from "@/lib/constants";
 
 const ARCIUM_PROGRAM = new PublicKey(ARCIUM_PROGRAM_ID);
 
+// Max offset to try when reverse-deriving PDA seeds.
+// Arcium offsets are sequential u32s; 100k covers all known clusters/nodes.
+const MAX_OFFSET_SEARCH = 100_000;
+
 export function getClusterAddress(offset: number): PublicKey {
   const offsetBuffer = Buffer.alloc(4);
   offsetBuffer.writeUInt32LE(offset);
@@ -11,6 +15,43 @@ export function getClusterAddress(offset: number): PublicKey {
     ARCIUM_PROGRAM
   );
   return pda;
+}
+
+/**
+ * Reverse-derive the cluster offset from a PDA address by brute-forcing
+ * the u32 seed space. Returns the offset or null if not found.
+ */
+export function deriveClusterOffset(address: string): number | null {
+  const target = address;
+  const seed = Buffer.from("Cluster");
+  const offsetBuf = Buffer.alloc(4);
+  for (let i = 0; i <= MAX_OFFSET_SEARCH; i++) {
+    offsetBuf.writeUInt32LE(i);
+    const [pda] = PublicKey.findProgramAddressSync(
+      [seed, offsetBuf],
+      ARCIUM_PROGRAM
+    );
+    if (pda.toBase58() === target) return i;
+  }
+  return null;
+}
+
+/**
+ * Reverse-derive the ARX node offset from a PDA address.
+ */
+export function deriveArxNodeOffset(address: string): number | null {
+  const target = address;
+  const seed = Buffer.from("ArxNode");
+  const offsetBuf = Buffer.alloc(4);
+  for (let i = 0; i <= MAX_OFFSET_SEARCH; i++) {
+    offsetBuf.writeUInt32LE(i);
+    const [pda] = PublicKey.findProgramAddressSync(
+      [seed, offsetBuf],
+      ARCIUM_PROGRAM
+    );
+    if (pda.toBase58() === target) return i;
+  }
+  return null;
 }
 
 export function getMempoolAddress(clusterOffset: number): PublicKey {
