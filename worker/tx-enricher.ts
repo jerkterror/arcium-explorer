@@ -98,6 +98,8 @@ export class TxEnricher {
       // 1. Missing queueTxSig (need to find queue tx)
       // 2. Finalized but missing finalizeTxSig (need to find callback tx)
       // 3. Has finalizeTxSig but callbackErrorCode not yet checked (need error extraction)
+      // 4. Queued with queueTxSig set but no finalizeTxSig — may be stale (finalized on-chain
+      //    but WS/polling missed the update)
       const rows = await db
         .select({
           id: schema.computations.id,
@@ -121,6 +123,13 @@ export class TxEnricher {
               and(
                 isNotNull(schema.computations.finalizeTxSig),
                 isNull(schema.computations.callbackErrorCode)
+              ),
+              // Stale "queued" rows: already have queueTxSig but may have been
+              // finalized on-chain without the DB status being updated
+              and(
+                eq(schema.computations.status, "queued"),
+                isNotNull(schema.computations.queueTxSig),
+                isNull(schema.computations.finalizeTxSig)
               )
             )
           )
@@ -187,6 +196,7 @@ export class TxEnricher {
             finalizeTxSig: string;
             callbackErrorCode: number;
             status: "queued" | "executing" | "finalized" | "failed";
+            finalizedAt: Date;
             failedAt: Date;
             updatedAt: Date;
           }> = {};
@@ -207,9 +217,19 @@ export class TxEnricher {
                 updates.status = "failed";
                 updates.failedAt = new Date();
               }
-            } else if (callbackSucceeded && row.callbackErrorCode === null) {
-              // Store 0 to indicate "checked, no error" — distinguishes from null (unchecked)
-              updates.callbackErrorCode = 0;
+            } else if (callbackSucceeded) {
+              if (row.callbackErrorCode === null) {
+                // Store 0 to indicate "checked, no error" — distinguishes from null (unchecked)
+                updates.callbackErrorCode = 0;
+              }
+              // Fix stale "queued" status — callback succeeded means it's finalized
+              if (row.status === "queued") {
+                updates.status = "finalized";
+                updates.finalizedAt = new Date();
+                log.info("Fixed stale queued computation → finalized", {
+                  address: row.address,
+                });
+              }
             }
           }
 
