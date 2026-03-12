@@ -4,6 +4,7 @@ import { useRef, useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useNetwork } from "@/lib/hooks/use-network";
 import { getArciumError } from "@/lib/arcium-errors";
+import { truncateAddress, timeAgo } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import type { SharedComputation } from "./computation-types";
 
@@ -15,9 +16,8 @@ export const PHASE_COLORS = {
   pending: "#6b7280",
 } as const;
 
-const MIN_CELL_SIZE = 28;
-const GAP = 3;
-const MAX_SIDE = 20;
+const MAX_COLS = 5;
+const GAP = 6;
 
 interface ComputationGridProps {
   computations: SharedComputation[];
@@ -36,7 +36,11 @@ export function ComputationGrid({
   const router = useRouter();
   const network = useNetwork();
   const [containerWidth, setContainerWidth] = useState(0);
-  const [tooltip, setTooltip] = useState<{ x: number; y: number; tile: SharedComputation } | null>(null);
+  const [tooltip, setTooltip] = useState<{
+    x: number;
+    y: number;
+    tile: SharedComputation;
+  } | null>(null);
 
   useEffect(() => {
     const wrapper = wrapperRef.current;
@@ -51,14 +55,11 @@ export function ComputationGrid({
     return () => observer.disconnect();
   }, []);
 
-  const count = computations.length;
+  // Responsive columns: max 5, min width ~120px per tile
   const cols =
     containerWidth > 0
-      ? Math.min(MAX_SIDE, Math.max(1, Math.floor((containerWidth + GAP) / (MIN_CELL_SIZE + GAP))))
+      ? Math.min(MAX_COLS, Math.max(1, Math.floor((containerWidth + GAP) / (120 + GAP))))
       : 0;
-  const rows = cols > 0 ? Math.ceil(count / cols) : 0;
-  const cellSize =
-    cols > 0 ? Math.floor((containerWidth - GAP * (cols - 1)) / cols) : 0;
 
   const handleClick = useCallback(
     (tile: SharedComputation) => {
@@ -86,10 +87,10 @@ export function ComputationGrid({
     onHover(null);
   }, [onHover]);
 
-  if (count === 0) {
+  if (computations.length === 0) {
     return (
-      <div ref={wrapperRef} className={cn("aspect-square w-full", className)}>
-        <div className="flex h-full items-center justify-center text-sm text-text-muted">
+      <div ref={wrapperRef} className={cn("w-full", className)}>
+        <div className="flex h-48 items-center justify-center text-sm text-text-muted">
           <div className="text-center">
             <p>No computations indexed yet</p>
             <p className="mt-1 text-xs">
@@ -103,8 +104,8 @@ export function ComputationGrid({
 
   if (cols === 0) {
     return (
-      <div ref={wrapperRef} className={cn("aspect-square w-full", className)}>
-        <div className="flex h-full items-center justify-center text-sm text-text-muted">
+      <div ref={wrapperRef} className={cn("w-full", className)}>
+        <div className="flex h-48 items-center justify-center text-sm text-text-muted">
           Loading grid...
         </div>
       </div>
@@ -116,65 +117,72 @@ export function ComputationGrid({
       <div
         className="grid"
         style={{
-          gridTemplateColumns: `repeat(${cols}, ${cellSize}px)`,
+          gridTemplateColumns: `repeat(${cols}, 1fr)`,
           gap: `${GAP}px`,
         }}
       >
-        {computations.slice(0, cols * rows).map((tile) => {
+        {computations.map((tile) => {
           const isFinalized = tile.status === "finalized";
           const isFailed = tile.status === "failed";
           const hasCallback = isFinalized || isFailed;
           const hasError =
             tile.callbackErrorCode !== null && tile.callbackErrorCode > 0;
           const isHighlighted = highlightedAddress === tile.address;
+          const timestamp = tile.queuedAt || tile.createdAt;
 
           return (
             <div
               key={tile.address}
               className={cn(
-                "flex cursor-pointer overflow-hidden rounded-sm transition-all",
+                "flex cursor-pointer flex-col overflow-hidden rounded-md border transition-all",
                 isHighlighted
-                  ? "ring-2 ring-white/80 scale-110 z-10"
-                  : "hover:ring-1 hover:ring-white/40"
+                  ? "border-white/60 ring-1 ring-white/40 scale-[1.03] z-10"
+                  : "border-border-primary hover:border-white/30"
               )}
-              style={{ width: cellSize, height: cellSize }}
+              style={{ backgroundColor: "#1e2035" }}
               onClick={() => handleClick(tile)}
               onMouseEnter={(e) => handleMouseEnter(e, tile)}
               onMouseLeave={handleMouseLeave}
             >
-              {/* Q half — purple */}
-              <div
-                className="flex flex-1 items-center justify-center"
-                style={{ backgroundColor: PHASE_COLORS.queued, opacity: 0.85 }}
-              >
-                <span
-                  className="font-mono font-bold leading-none text-white/70"
-                  style={{ fontSize: Math.max(8, cellSize * 0.3) }}
-                >
-                  ↑
-                </span>
+              {/* Info section */}
+              <div className="flex-1 px-2.5 py-2 space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="font-mono text-[11px] font-medium text-text-primary">
+                    {truncateAddress(tile.address, 4)}
+                  </span>
+                  <span className="text-[10px] text-text-muted">
+                    {timestamp ? timeAgo(timestamp) : "—"}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-text-muted">
+                    #{tile.computationOffset}
+                  </span>
+                  <span className="text-[10px] capitalize text-text-secondary">
+                    {tile.status}
+                  </span>
+                </div>
               </div>
-              {/* C half */}
-              <div
-                className="flex flex-1 items-center justify-center"
-                style={{
-                  backgroundColor: hasCallback
-                    ? hasError
-                      ? PHASE_COLORS.callbackError
-                      : PHASE_COLORS.callbackOk
-                    : PHASE_COLORS.pending,
-                  opacity: hasCallback ? 0.85 : 0.4,
-                }}
-              >
-                <span
-                  className={cn(
-                    "font-mono font-bold leading-none",
-                    hasCallback && !hasError ? "text-black/70" : "text-black/70"
-                  )}
-                  style={{ fontSize: Math.max(8, cellSize * 0.3) }}
-                >
-                  {hasCallback ? (hasError ? "!" : "↓") : "↓"}
-                </span>
+              {/* Q/C phase bar */}
+              <div className="flex h-3">
+                <div
+                  className="flex-1"
+                  style={{
+                    backgroundColor: PHASE_COLORS.queued,
+                    opacity: 0.85,
+                  }}
+                />
+                <div
+                  className="flex-1"
+                  style={{
+                    backgroundColor: hasCallback
+                      ? hasError
+                        ? PHASE_COLORS.callbackError
+                        : PHASE_COLORS.callbackOk
+                      : PHASE_COLORS.pending,
+                    opacity: hasCallback ? 0.85 : 0.35,
+                  }}
+                />
               </div>
             </div>
           );
@@ -186,7 +194,11 @@ export function ComputationGrid({
   );
 }
 
-function GridTooltip({ data }: { data: { x: number; y: number; tile: SharedComputation } }) {
+function GridTooltip({
+  data,
+}: {
+  data: { x: number; y: number; tile: SharedComputation };
+}) {
   const { tile, x, y } = data;
   const hasCallback =
     tile.status === "finalized" || tile.status === "failed";
@@ -209,7 +221,12 @@ function GridTooltip({ data }: { data: { x: number; y: number; tile: SharedCompu
       <div className="mt-1 space-y-0.5 text-text-secondary">
         <div className="flex items-center gap-1.5">
           <span style={{ color: PHASE_COLORS.queued }}>↑ Q:</span>
-          <span>Queued{tile.queuedAt ? ` · ${new Date(tile.queuedAt).toLocaleString()}` : ""}</span>
+          <span>
+            Queued
+            {tile.queuedAt
+              ? ` · ${new Date(tile.queuedAt).toLocaleString()}`
+              : ""}
+          </span>
         </div>
         <div className="flex items-center gap-1.5">
           <span

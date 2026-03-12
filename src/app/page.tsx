@@ -19,7 +19,7 @@ import { ThroughputChart } from "@/components/shared/throughput-chart";
 import { LiveFeed } from "@/components/shared/live-feed";
 import type { SharedComputation } from "@/components/shared/computation-types";
 
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 20;
 
 function DashboardContent() {
   const { data: statsResponse, isLoading } = useStats();
