@@ -51,9 +51,8 @@
   --color-accent-link: var(--accent-link);
   --color-accent-arcium: var(--accent-arcium);
   --color-accent-pink: var(--accent-pink);
-  --font-sans: var(--font-aeonik);
+  --font-sans: var(--font-inter);
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-  --font-display: var(--font-dot-matrix);
 }
 
 body {

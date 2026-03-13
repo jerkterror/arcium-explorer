@@ -87,7 +87,7 @@ The Arcium Explorer is a web application that indexes, stores, and visualizes da
 | Icons | Lucide React | 0.563.0 |
 | Blockchain | @solana/web3.js | 1.98.4 |
 | gRPC | @triton-one/yellowstone-grpc | 5.0.2 |
-| Fonts | Aeonik Pro (4 weights), DotMatrixTwo | Custom OTF/TTF |
+| Fonts | Inter (Google Fonts, 5 weights) | next/font/google |
 
 ---
 
@@ -842,9 +842,8 @@ The app uses a custom dark theme inspired by mempool.space:
 These are registered as Tailwind v4 theme tokens via `@theme inline`, enabling utilities like `bg-bg-primary`, `text-status-queued`, etc.
 
 ### Fonts
-- **Aeonik Pro** (4 weights: light, regular, medium, bold) — primary sans-serif
-- **DotMatrixTwo** — display/decorative font
-- CSS variables: `--font-aeonik`, `--font-dot-matrix`
+- **Inter** (Google Fonts, 5 weights: 300–700) — primary sans-serif
+- CSS variable: `--font-inter`
 
 ### Utility
 - `cn()` from `src/lib/utils.ts` — combines `clsx` + `tailwind-merge` for conditional class composition

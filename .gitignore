@@ -42,6 +42,9 @@ next-env.d.ts
 # ref folder (project-specific docs, not for git)
 /ref/
 
+# AI project rules (keep local)
+CLAUDE.md
+
 # raw brand assets (originals — processed versions live in public/ and src/fonts/)
 /Logos/
 /Fonts/

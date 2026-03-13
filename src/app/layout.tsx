@@ -1,25 +1,15 @@
 import type { Metadata } from "next";
-import localFont from "next/font/local";
+import { Inter } from "next/font/google";
 import { Suspense } from "react";
 import { Providers } from "@/components/providers";
 import { Header } from "@/components/layout/header";
 import { Footer } from "@/components/layout/footer";
 import "./globals.css";
 
-const aeonik = localFont({
-  src: [
-    { path: "../fonts/AeonikPro-Light.otf", weight: "300", style: "normal" },
-    { path: "../fonts/AeonikPro-Regular.otf", weight: "400", style: "normal" },
-    { path: "../fonts/AeonikPro-Medium.otf", weight: "500", style: "normal" },
-    { path: "../fonts/AeonikPro-Bold.otf", weight: "700", style: "normal" },
-  ],
-  variable: "--font-aeonik",
-  display: "swap",
-});
-
-const dotMatrix = localFont({
-  src: "../fonts/DotMatrixTwo.ttf",
-  variable: "--font-dot-matrix",
+const inter = Inter({
+  subsets: ["latin"],
+  weight: ["300", "400", "500", "600", "700"],
+  variable: "--font-inter",
   display: "swap",
 });
 
@@ -44,7 +34,7 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body
-        className={`${aeonik.variable} ${dotMatrix.variable} antialiased min-h-screen flex flex-col`}
+        className={`${inter.variable} antialiased min-h-screen flex flex-col`}
       >
         <Providers>
           <Suspense>
