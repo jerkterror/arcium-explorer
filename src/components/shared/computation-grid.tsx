@@ -163,55 +163,50 @@ export function ComputationGrid({
                   </span>
                 </div>
               </div>
-              {/* Q/C phase arrows — link to Solscan tx */}
+              {/* Q/C phase arrows — link to Solscan tx when sig available */}
               <div className="flex items-center justify-center gap-5 pb-3 pt-1">
-                {tile.queueTxSig ? (
-                  <a
-                    href={`https://solscan.io/tx/${tile.queueTxSig}${network === "devnet" ? "?cluster=devnet" : ""}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-3xl font-black leading-none hover:brightness-125 transition-all"
-                    style={{ color: PHASE_COLORS.queued }}
-                    onClick={(e) => e.stopPropagation()}
-                    title="View queue TX on Solscan"
-                  >
-                    ↑
-                  </a>
-                ) : (
-                  <span
-                    className="text-3xl font-black leading-none"
-                    style={{ color: PHASE_COLORS.queued }}
-                  >
-                    ↑
-                  </span>
-                )}
-                {tile.finalizeTxSig ? (
-                  <a
-                    href={`https://solscan.io/tx/${tile.finalizeTxSig}${network === "devnet" ? "?cluster=devnet" : ""}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-3xl font-black leading-none hover:brightness-125 transition-all"
-                    style={{
-                      color: hasError
-                        ? PHASE_COLORS.callbackError
-                        : PHASE_COLORS.callbackOk,
-                    }}
-                    onClick={(e) => e.stopPropagation()}
-                    title="View callback TX on Solscan"
-                  >
-                    {hasError ? "!" : "↓"}
-                  </a>
-                ) : (
-                  <span
-                    className="text-3xl font-black leading-none"
-                    style={{
-                      color: PHASE_COLORS.pending,
-                      opacity: 0.4,
-                    }}
-                  >
-                    ↓
-                  </span>
-                )}
+                {(() => {
+                  const queueUrl = tile.queueTxSig
+                    ? `https://solscan.io/tx/${tile.queueTxSig}${network === "devnet" ? "?cluster=devnet" : ""}`
+                    : null;
+                  const Tag = queueUrl ? "a" : "span";
+                  const linkProps = queueUrl
+                    ? { href: queueUrl, target: "_blank", rel: "noopener noreferrer", title: "View queue TX on Solscan", onClick: (e: React.MouseEvent) => e.stopPropagation() }
+                    : {};
+                  return (
+                    <Tag
+                      {...linkProps}
+                      className={cn("text-3xl font-black leading-none", queueUrl && "hover:brightness-125 transition-all")}
+                      style={{ color: PHASE_COLORS.queued }}
+                    >
+                      ↑
+                    </Tag>
+                  );
+                })()}
+                {(() => {
+                  const callbackColor = hasCallback
+                    ? hasError ? PHASE_COLORS.callbackError : PHASE_COLORS.callbackOk
+                    : PHASE_COLORS.pending;
+                  const callbackUrl = tile.finalizeTxSig
+                    ? `https://solscan.io/tx/${tile.finalizeTxSig}${network === "devnet" ? "?cluster=devnet" : ""}`
+                    : null;
+                  const Tag = callbackUrl ? "a" : "span";
+                  const linkProps = callbackUrl
+                    ? { href: callbackUrl, target: "_blank", rel: "noopener noreferrer", title: "View callback TX on Solscan", onClick: (e: React.MouseEvent) => e.stopPropagation() }
+                    : {};
+                  return (
+                    <Tag
+                      {...linkProps}
+                      className={cn("text-3xl font-black leading-none", callbackUrl && "hover:brightness-125 transition-all")}
+                      style={{
+                        color: callbackColor,
+                        opacity: hasCallback ? 1 : 0.4,
+                      }}
+                    >
+                      {hasError ? "!" : "↓"}
+                    </Tag>
+                  );
+                })()}
               </div>
             </div>
           );
