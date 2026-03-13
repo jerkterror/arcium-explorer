@@ -130,22 +130,22 @@ function DashboardContent() {
 
       {/* Computation grid + live feed */}
       <div className="grid gap-6 lg:grid-cols-2">
-        <div>
-          <div className="rounded-lg border border-border-primary bg-bg-surface p-4">
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-sm font-medium text-text-secondary">
+        <div className="min-w-0">
+          <div className="overflow-hidden rounded-lg border border-border-primary bg-bg-surface p-4">
+            <div className="mb-4 flex flex-wrap items-center gap-2">
+              <h2 className="mr-auto text-sm font-medium text-text-secondary">
                 Computation Grid
               </h2>
-              <div className="flex items-center gap-3 text-xs text-text-muted">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-muted">
                 {([
                   ["queued", "Queued"],
-                  ["callbackOk", "Callback OK"],
-                  ["callbackError", "Callback Error"],
+                  ["callbackOk", "CB OK"],
+                  ["callbackError", "CB Error"],
                   ["pending", "Pending"],
                 ] as const).map(([key, label]) => (
-                  <div key={key} className="flex items-center gap-1.5">
+                  <div key={key} className="flex items-center gap-1">
                     <span
-                      className="inline-block h-2.5 w-2.5 rounded-sm"
+                      className="inline-block h-2 w-2 rounded-sm"
                       style={{ backgroundColor: PHASE_COLORS[key] }}
                     />
                     <span>{label}</span>
