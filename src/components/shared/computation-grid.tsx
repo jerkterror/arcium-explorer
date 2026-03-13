@@ -124,9 +124,12 @@ export function ComputationGrid({
         {computations.map((tile) => {
           const isFinalized = tile.status === "finalized";
           const isFailed = tile.status === "failed";
-          const hasCallback = isFinalized || isFailed;
           const hasError =
             tile.callbackErrorCode !== null && tile.callbackErrorCode > 0;
+          // Check callbackErrorCode directly too — covers the race window where
+          // the enricher set the error code but the indexer overwrote status
+          const hasCallback =
+            isFinalized || isFailed || tile.callbackErrorCode !== null;
           const isHighlighted = highlightedAddress === tile.address;
           const timestamp = tile.queuedAt || tile.createdAt;
 

@@ -218,7 +218,12 @@ export async function upsertComputation(
   }
 
   const existing = await db
-    .select({ id: schema.computations.id, clusterOffset: schema.computations.clusterOffset })
+    .select({
+      id: schema.computations.id,
+      clusterOffset: schema.computations.clusterOffset,
+      status: schema.computations.status,
+      callbackErrorCode: schema.computations.callbackErrorCode,
+    })
     .from(schema.computations)
     .where(
       and(
@@ -228,29 +233,50 @@ export async function upsertComputation(
     )
     .limit(1);
 
-  const data = {
+  const baseData = {
     address,
     computationOffset: parsed.computationOffset,
     clusterOffset,
     payer: parsed.payer,
     mxeProgramId: parsed.mxeProgramId,
-    status: parsed.status,
     isScaffold: parsed.isScaffold,
     queuedAt: parsed.queuedAt,
     executingAt: parsed.executingAt,
-    finalizedAt: parsed.finalizedAt,
-    failedAt: parsed.failedAt,
     network,
     updatedAt: new Date(),
   };
 
   if (existing.length > 0) {
+    const row = existing[0];
+    // Preserve enricher-corrected status: the tx-enricher may have set status
+    // to "failed" (with callbackErrorCode) based on tx analysis. The on-chain
+    // account status stays "Queued" after a failed callback (tx rolled back),
+    // so the indexer would otherwise overwrite the corrected status.
+    const preserveStatus =
+      row.status === "failed" ||
+      row.callbackErrorCode !== null ||
+      (row.status === "finalized" && parsed.status === "queued");
+
+    const updateData = preserveStatus
+      ? { ...baseData }
+      : {
+          ...baseData,
+          status: parsed.status,
+          finalizedAt: parsed.finalizedAt,
+          failedAt: parsed.failedAt,
+        };
+
     await db
       .update(schema.computations)
-      .set(data)
-      .where(eq(schema.computations.id, existing[0].id));
+      .set(updateData)
+      .where(eq(schema.computations.id, row.id));
   } else {
-    await db.insert(schema.computations).values(data);
+    await db.insert(schema.computations).values({
+      ...baseData,
+      status: parsed.status,
+      finalizedAt: parsed.finalizedAt,
+      failedAt: parsed.failedAt,
+    });
   }
 }
 
