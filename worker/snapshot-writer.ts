@@ -1,9 +1,11 @@
-import { count, eq, and } from "drizzle-orm";
+import { count, eq, and, lt } from "drizzle-orm";
 import { createLogger } from "./logger";
 import { upsertProgram } from "@/lib/indexer/upsert";
 import type { Network } from "@/types";
 
 const log = createLogger("snapshots");
+
+const RETENTION_DAYS = 30;
 
 async function getDb() {
   const { db } = await import("@/lib/db");
@@ -171,6 +173,19 @@ export class SnapshotWriter {
           error: error instanceof Error ? error.message : String(error),
         });
       }
+    }
+
+    // Trim old snapshots (run once per cycle, covers all networks)
+    try {
+      const { db, schema } = await getDb();
+      const cutoff = new Date(Date.now() - RETENTION_DAYS * 24 * 60 * 60 * 1000);
+      await db
+        .delete(schema.networkSnapshots)
+        .where(lt(schema.networkSnapshots.timestamp, cutoff));
+    } catch (error) {
+      log.error("Snapshot retention cleanup failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 

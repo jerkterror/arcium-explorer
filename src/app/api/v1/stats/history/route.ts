@@ -1,6 +1,6 @@
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { eq, desc } from "drizzle-orm";
-import { getNetwork, jsonResponse, errorResponse } from "@/lib/api-helpers";
+import { getNetwork, errorResponse } from "@/lib/api-helpers";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +22,14 @@ export async function GET(req: NextRequest) {
       .orderBy(desc(schema.networkSnapshots.timestamp))
       .limit(limit);
 
-    return jsonResponse(snapshots.reverse(), { network });
+    return NextResponse.json(
+      { data: snapshots.reverse(), meta: { network } },
+      {
+        headers: {
+          "Cache-Control": "public, s-maxage=60, stale-while-revalidate=120",
+        },
+      }
+    );
   } catch (error) {
     console.error("Stats history error:", error);
     return errorResponse(

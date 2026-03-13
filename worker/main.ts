@@ -18,10 +18,10 @@ const MAINNET_GRPC_TOKEN = process.env.MAINNET_GRPC_TOKEN || undefined;
 const DEVNET_WS_URL = process.env.DEVNET_WS_URL || undefined;
 const MAINNET_ENRICHER_RPC_URL = process.env.MAINNET_ENRICHER_RPC_URL || undefined;
 
-const DEVNET_POLL_INTERVAL = 2 * 60_000;     // 2min (fallback, WS is primary)
-const MAINNET_POLL_INTERVAL = 5 * 60_000;    // 5min (consistency check, gRPC is primary)
+const DEVNET_POLL_INTERVAL = 5 * 60_000;     // 5min (WS is primary, this is consistency check)
+const MAINNET_POLL_INTERVAL = 5 * 60_000;    // 5min (gRPC is primary, this is consistency check)
 const SNAPSHOT_INTERVAL = 5 * 60_000;        // 5min
-const HEARTBEAT_INTERVAL = 60_000;           // 1min
+const HEARTBEAT_INTERVAL = 5 * 60_000;       // 5min
 
 // Track active services for graceful shutdown
 const services: { stop: () => void }[] = [];

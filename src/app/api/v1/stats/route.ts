@@ -1,6 +1,6 @@
-import { NextRequest } from "next/server";
-import { count, eq, and } from "drizzle-orm";
-import { getNetwork, jsonResponse, errorResponse } from "@/lib/api-helpers";
+import { NextRequest, NextResponse } from "next/server";
+import { sql } from "drizzle-orm";
+import { getNetwork, errorResponse } from "@/lib/api-helpers";
 
 export const dynamic = "force-dynamic";
 
@@ -9,86 +9,51 @@ export async function GET(req: NextRequest) {
 
   try {
     const { db } = await import("@/lib/db");
-    const schema = await import("@/lib/db/schema");
 
-    const [clusterCount] = await db
-      .select({ count: count() })
-      .from(schema.clusters)
-      .where(eq(schema.clusters.network, network));
+    // Single query: all computation counts by status + total (excluding scaffolds)
+    const compRows = await db.execute(sql`
+      SELECT
+        count(*) FILTER (WHERE is_scaffold = false) AS total,
+        count(*) FILTER (WHERE is_scaffold = false AND status = 'queued') AS queued,
+        count(*) FILTER (WHERE is_scaffold = false AND status = 'executing') AS executing,
+        count(*) FILTER (WHERE is_scaffold = false AND status = 'finalized') AS finalized
+      FROM computations
+      WHERE network = ${network}
+    `);
 
-    const [nodeCount] = await db
-      .select({ count: count() })
-      .from(schema.arxNodes)
-      .where(eq(schema.arxNodes.network, network));
+    // Single query: cluster, node, active-node, program, mxe counts
+    const metaRows = await db.execute(sql`
+      SELECT
+        (SELECT count(*) FROM clusters WHERE network = ${network}) AS clusters,
+        (SELECT count(*) FROM arx_nodes WHERE network = ${network}) AS nodes,
+        (SELECT count(*) FROM arx_nodes WHERE network = ${network} AND is_active = true) AS active_nodes,
+        (SELECT count(*) FROM programs WHERE network = ${network}) AS programs,
+        (SELECT count(*) FROM mxe_accounts WHERE network = ${network}) AS mxes
+    `);
 
-    const [activeNodeCount] = await db
-      .select({ count: count() })
-      .from(schema.arxNodes)
-      .where(
-        and(eq(schema.arxNodes.network, network), eq(schema.arxNodes.isActive, true))
-      );
+    const comp = compRows[0] as Record<string, number>;
+    const meta = metaRows[0] as Record<string, number>;
 
-    const [computationCount] = await db
-      .select({ count: count() })
-      .from(schema.computations)
-      .where(and(eq(schema.computations.network, network), eq(schema.computations.isScaffold, false)));
-
-    const [queuedCount] = await db
-      .select({ count: count() })
-      .from(schema.computations)
-      .where(
-        and(
-          eq(schema.computations.network, network),
-          eq(schema.computations.status, "queued"),
-          eq(schema.computations.isScaffold, false)
-        )
-      );
-
-    const [executingCount] = await db
-      .select({ count: count() })
-      .from(schema.computations)
-      .where(
-        and(
-          eq(schema.computations.network, network),
-          eq(schema.computations.status, "executing"),
-          eq(schema.computations.isScaffold, false)
-        )
-      );
-
-    const [finalizedCount] = await db
-      .select({ count: count() })
-      .from(schema.computations)
-      .where(
-        and(
-          eq(schema.computations.network, network),
-          eq(schema.computations.status, "finalized"),
-          eq(schema.computations.isScaffold, false)
-        )
-      );
-
-    const [programCount] = await db
-      .select({ count: count() })
-      .from(schema.programs)
-      .where(eq(schema.programs.network, network));
-
-    const [mxeCount] = await db
-      .select({ count: count() })
-      .from(schema.mxeAccounts)
-      .where(eq(schema.mxeAccounts.network, network));
-
-    return jsonResponse(
+    return NextResponse.json(
       {
-        totalClusters: clusterCount.count,
-        totalNodes: nodeCount.count,
-        activeNodes: activeNodeCount.count,
-        totalComputations: computationCount.count,
-        queuedComputations: queuedCount.count,
-        executingComputations: executingCount.count,
-        finalizedComputations: finalizedCount.count,
-        totalPrograms: programCount.count,
-        totalMxes: mxeCount.count,
+        data: {
+          totalClusters: Number(meta.clusters),
+          totalNodes: Number(meta.nodes),
+          activeNodes: Number(meta.active_nodes),
+          totalComputations: Number(comp.total),
+          queuedComputations: Number(comp.queued),
+          executingComputations: Number(comp.executing),
+          finalizedComputations: Number(comp.finalized),
+          totalPrograms: Number(meta.programs),
+          totalMxes: Number(meta.mxes),
+        },
+        meta: { network },
       },
-      { network }
+      {
+        headers: {
+          "Cache-Control": "public, s-maxage=30, stale-while-revalidate=60",
+        },
+      }
     );
   } catch (error) {
     console.error("Stats API error:", error);

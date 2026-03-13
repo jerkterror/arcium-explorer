@@ -52,7 +52,7 @@ export class TxEnricher {
     this.connection = new Connection(config.rpcUrl, { commitment: "confirmed" });
     this.network = config.network;
     this.batchSize = config.batchSize ?? 10;
-    this.intervalMs = config.intervalMs ?? 30_000;
+    this.intervalMs = config.intervalMs ?? 60_000;
     this.rateLimitMs = config.rateLimitMs ?? 100;
   }
 

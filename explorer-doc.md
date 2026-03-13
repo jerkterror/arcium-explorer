@@ -62,13 +62,12 @@ The Arcium Explorer is a web application that indexes, stores, and visualizes da
         └──────────────────────┘
 ```
 
-### Three Runtime Processes
+### Two Runtime Processes
 
 | Process | Entry Point | Purpose |
 |---------|------------|---------|
 | **Next.js App** | `npm run dev` / `npm run build && npm start` | Serves pages + API routes |
 | **Worker** | `npm run worker` (tsx `worker/main.ts`) | Indexes on-chain data into PostgreSQL |
-| **Vercel Cron** | `POST /api/cron` (every 1 min) | Fallback indexing via `indexAll("devnet")` |
 
 ---
 
@@ -120,16 +119,13 @@ arcium-explorer/
 │   │   │   ├── page.tsx              # List (/mxes)
 │   │   │   └── [address]/page.tsx    # Detail (/mxes/:address)
 │   │   ├── search/page.tsx           # Search results (/search?q=)
-│   │   └── api/
-│   │       ├── cron/route.ts         # Vercel cron indexer
-│   │       └── v1/
-│   │           ├── stats/
-│   │           │   ├── route.ts      # GET /api/v1/stats
-│   │           │   └── history/route.ts  # GET /api/v1/stats/history
-│   │           ├── computations/
-│   │           │   ├── route.ts      # GET /api/v1/computations
-│   │           │   ├── [id]/route.ts # GET /api/v1/computations/:id
-│   │           │   └── live/route.ts # GET /api/v1/computations/live (SSE)
+│   │   └── api/v1/
+│   │       ├── stats/
+│   │       │   ├── route.ts      # GET /api/v1/stats (2 queries, cached 30s)
+│   │       │   └── history/route.ts  # GET /api/v1/stats/history (cached 60s)
+│   │       ├── computations/
+│   │       │   ├── route.ts      # GET /api/v1/computations
+│   │       │   └── [id]/route.ts # GET /api/v1/computations/:id
 │   │           ├── clusters/
 │   │           │   ├── route.ts      # GET /api/v1/clusters
 │   │           │   └── [offset]/route.ts
@@ -201,7 +197,7 @@ arcium-explorer/
 ├── next.config.ts
 ├── drizzle.config.ts
 ├── tsconfig.json
-├── vercel.json                       # Cron schedule: */1 * * * *
+├── vercel.json                       # Empty (cron removed)
 └── CLAUDE.md                         # Project operating rules
 ```
 
@@ -408,9 +404,10 @@ The worker is a **standalone Node.js process** (`worker/main.ts`) that runs inde
 |---------|------|---------|-----------|----------|
 | GrpcSubscriber | `worker/grpc-subscriber.ts` | Mainnet | Yellowstone gRPC stream | Real-time |
 | WsSubscriber | `worker/ws-subscriber.ts` | Devnet | `onProgramAccountChange()` WebSocket | Real-time |
-| PollingIndexer | `worker/polling-indexer.ts` | Both | `getProgramAccounts()` per type | 5min (mainnet), 2min (devnet) |
-| TxEnricher | `worker/tx-enricher.ts` | Both | `getSignaturesForAddress()` — identifies queue/callback sigs, extracts callback error codes, skips 6204 retries | 30s, batch of 10 |
-| SnapshotWriter | `worker/snapshot-writer.ts` | Both | DB aggregation queries | 5min |
+| PollingIndexer | `worker/polling-indexer.ts` | Both | `getProgramAccounts()` per type | 5min (both networks, streaming is primary) |
+| TxEnricher | `worker/tx-enricher.ts` | Both | `getSignaturesForAddress()` — identifies queue/callback sigs, extracts callback error codes, skips 6204 retries, fixes stale queued→finalized | 60s, batch of 10 |
+| SnapshotWriter | `worker/snapshot-writer.ts` | Both | DB aggregation queries + 30-day retention cleanup | 5min |
+| Heartbeat | `worker/main.ts` (inline) | — | Memory + uptime logging | 5min |
 
 ### Data Flow
 
@@ -441,9 +438,11 @@ On-chain account update
 - Runs sequentially through all 5 account types
 
 ### TxEnricher
-- Finds computations missing `queueTxSig` or `finalizeTxSig`
+- Finds computations needing enrichment (4 conditions: missing queueTxSig, finalized missing finalizeTxSig, finalizeTxSig set but callbackErrorCode unchecked, stale queued rows)
 - Calls `getSignaturesForAddress(computationPubkey, { limit: 20 })`
-- Oldest signature → `queueTxSig`; newest (if finalized + >1 sig) → `finalizeTxSig`
+- Oldest signature → `queueTxSig`; walks from second-oldest forward, skips error 6204 (AlreadyCallbackedComputation), first non-6204 → `finalizeTxSig`
+- Extracts callback error codes: 0 = OK, >0 = Arcium error, null = unchecked
+- Fixes stale "queued" rows: if callback sig found for a queued computation, updates status → finalized
 - Rate-limited: 200ms between calls (mainnet), 100ms (devnet)
 - Skips scaffold computations
 
@@ -451,6 +450,7 @@ On-chain account update
 Writes every 5 minutes:
 1. **Network snapshots** — totalClusters, activeNodes, totalComputations, computationsPerMin
 2. **Program aggregations** — for each MXE, count definitions + non-scaffold computations, upsert into `programs` table
+3. **Retention cleanup** — deletes snapshots older than 30 days to prevent unbounded DB growth
 
 ### Environment Variables (Worker)
 
@@ -610,15 +610,14 @@ All API routes are under `src/app/api/v1/`. Every route uses `export const dynam
 #### Statistics
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/v1/stats` | GET | Network-wide counts (clusters, nodes, computations by status, programs, MXEs). Excludes scaffolds. |
-| `/api/v1/stats/history?limit=N` | GET | Array of `networkSnapshots` (max 100, default 50). Most recent first, then reversed for chronological order. |
+| `/api/v1/stats` | GET | Network-wide counts (clusters, nodes, computations by status, programs, MXEs). Uses 2 consolidated SQL queries (FILTER + subselects). `Cache-Control: s-maxage=30, stale-while-revalidate=60`. |
+| `/api/v1/stats/history?limit=N` | GET | Array of `networkSnapshots` (max 100, default 50). `Cache-Control: s-maxage=60, stale-while-revalidate=120`. |
 
 #### Computations
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/api/v1/computations` | GET | Paginated list. Filters: `?status=`, `?cluster=`, `?program=`, `?scaffold=true\|false\|all`. Default excludes scaffolds. |
 | `/api/v1/computations/:id` | GET | Single computation by address OR offset. |
-| `/api/v1/computations/live` | GET (SSE) | Server-Sent Events stream. `initial` event: 20 recent non-scaffold computations. `update` event: polls every 5s for 5 newest. |
 
 #### Clusters
 | Endpoint | Method | Description |
@@ -655,11 +654,6 @@ All API routes are under `src/app/api/v1/`. Every route uses `export const dynam
 |----------|--------|-------------|
 | `/api/v1/search?q=` | GET | Multi-entity search. Numeric queries search by offset. Base58 pubkey queries search across all entity types by address/authority/payer/txSig. Returns up to 5 of each type. |
 
-#### Cron
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/cron` | POST/GET | Auth-protected (`CRON_SECRET`). Runs `indexAll("devnet")`. Max 60s duration. |
-
 ---
 
 ## 9. Frontend Pages
@@ -674,13 +668,16 @@ All pages are **client components** (`"use client"`) that fetch data via TanStac
 
 ### Dashboard (`/`)
 **File:** `src/app/page.tsx`
-**Data:** `useStats()`, `useStatsHistory(50)`
+**Data:** `useStats()`, `useStatsHistory(50)`, `useComputations(page, 20)`
+
+Single data source: fetches one page of computations and passes to both grid and feed. Shared `highlightedAddress` state enables cross-component hover highlighting.
 
 Renders:
 1. **6 MetricCards** (2-3 columns responsive): Clusters, Active Nodes, Computations, Queued, Programs, MXEs
-2. **ComputationGrid** — DOM grid (up to 20x20 = 400 cells) with Q/C phase tiles, hover tooltips showing error details
-3. **LiveFeed** — SSE-powered real-time computation stream
-4. **ThroughputChart** — area chart of computations/min over time
+2. **Pagination controls** — shared prev/next between grid and live feed (page size 20)
+3. **ComputationGrid** — DOM grid (max 5 columns) with info card tiles showing address, offset, status, time, Q/C phase arrows
+4. **LiveFeed** — table-style feed from shared computation data (no SSE)
+5. **ThroughputChart** — area chart of computations/min over time
 
 ### List Pages (6 total)
 All follow the same pattern:
@@ -721,7 +718,7 @@ Displays mixed results (clusters, nodes, computations, programs, MXEs) with type
 
 ### StatusBadge (`src/components/shared/status-badge.tsx`)
 Colored pill badge for computation status or node activity status.
-- **Statuses:** queued (green), executing (amber), finalized (purple), failed (red), active (green), inactive (gray)
+- **Statuses:** queued (purple), executing (amber), finalized (green), failed (red), active (green), inactive (gray)
 - Renders colored dot + capitalized label
 
 ### AddressDisplay (`src/components/shared/address-display.tsx`)
@@ -739,15 +736,16 @@ Generic TanStack Table wrapper with client-side sorting, pagination, and row cli
 - Pagination controls (hidden if single page)
 
 ### ComputationGrid (`src/components/shared/computation-grid.tsx`)
-DOM-based grid visualization with two-phase tiles (Q/C per computation).
-- Up to 20x20 (400 cells), min cell size 28px, sized dynamically via ResizeObserver
-- Each tile split into left (Q = Queue) and right (C = Callback) halves
-- Q half: always green (computation account exists = queue succeeded), shows ↑
-- C half: gray/pending (↓), purple/OK (↓), or red/error (!) depending on callback status
+DOM-based CSS grid with info card tiles showing Q/C phase status per computation.
+- Max 5 columns, `1fr` sizing, 6px gap, responsive via ResizeObserver
+- Each tile shows: truncated address, time ago, computation offset, status text
+- **Q/C phase arrows** (text-3xl font-black): purple ↑ (queued), green ↓ (callback OK), red ! (callback error), gray ↓ (pending)
 - Hover tooltip shows address, queue timestamp, callback result with Arcium error details
+- Cross-highlight: `highlightedAddress` prop highlights matching tile (ring + scale)
 - Click navigates to computation detail
-- Legend: Queued (green), Callback OK (purple), Callback Error (red), Pending (gray)
+- `PHASE_COLORS`: queued=`#6D45FF`, callbackOk=`#4ade80`, callbackError=`#f87171`, pending=`#6b7280`
 - Error details from `src/lib/arcium-errors.ts` (all 67 Arcium error codes 6000–6716)
+- Shared type: `SharedComputation` from `src/components/shared/computation-types.ts`
 
 ### ThroughputChart (`src/components/shared/throughput-chart.tsx`)
 Recharts AreaChart showing computations per minute over time.
@@ -756,13 +754,10 @@ Recharts AreaChart showing computations per minute over time.
 - Responsive (100% width, 200px height)
 
 ### LiveFeed (`src/components/shared/live-feed.tsx`)
-Real-time computation feed using Server-Sent Events with polling fallback.
-- SSE endpoint: `/api/v1/computations/live?network=`
-- Events: `initial` (20 items), `update` (deduped by address)
-- Fallback: TanStack Query polling when SSE disconnected
-- Status indicator: green "Live" dot (SSE) or gray "Polling" dot
-- Max 30 items displayed
-- "Time ago" labels refresh every 10s
+Table-style computation feed receiving shared data as props (no SSE, no independent fetching).
+- Grid layout with columns: status dot, address, offset, payer, program, time
+- Cross-highlight: receives `highlightedAddress` and `onHover` props, auto-scrolls to highlighted item
+- Uses same `SharedComputation` type as ComputationGrid
 
 ### Header (`src/components/layout/header.tsx`)
 Navigation bar with search (Cmd+K) and network toggle (devnet/mainnet).
@@ -833,9 +828,9 @@ The app uses a custom dark theme inspired by mempool.space:
 --text-muted:     #6b6f85   /* Disabled/muted */
 
 /* Status Colors */
---status-queued:    #4ade80  /* Green */
+--status-queued:    #6D45FF  /* Arcium purple */
 --status-executing: #fbbf24  /* Amber */
---status-finalized: #6D45FF  /* Arcium purple */
+--status-finalized: #4ade80  /* Green */
 --status-failed:    #f87171  /* Red */
 
 /* Accents */
@@ -866,7 +861,7 @@ These are registered as Tailwind v4 theme tokens via `@theme inline`, enabling u
 | `drizzle.config.ts` | Schema at `./src/lib/db/schema.ts`, PostgreSQL, output `./drizzle/` |
 | `postcss.config.mjs` | `@tailwindcss/postcss` (Tailwind v4) |
 | `eslint.config.mjs` | Next.js core-web-vitals + TypeScript rules |
-| `vercel.json` | Cron: `*/1 * * * *` → `/api/cron` |
+| `vercel.json` | Empty (cron removed — worker handles all indexing) |
 | `worker/tsconfig.json` | Worker-specific TS config |
 
 ### npm Scripts
@@ -887,8 +882,7 @@ npm run db:studio    # Drizzle Studio (DB GUI)
 ## 14. Deployment & Infrastructure
 
 - **Hosting:** Vercel (Next.js app) + Railway (PostgreSQL + Worker)
-- **Cron:** Vercel cron (`vercel.json`) calls `/api/cron` every minute as fallback indexer
-- **Worker:** Runs as persistent Railway service
+- **Worker:** Runs as persistent Railway service (all indexing: gRPC + WS + polling + tx enricher + snapshots)
 - **Database:** Single PostgreSQL instance on Railway
 - **RPC:** Layer33 POC endpoints for mainnet (REST + gRPC), Solana public for devnet
 
@@ -901,7 +895,6 @@ npm run db:studio    # Drizzle Studio (DB GUI)
 | `NEXT_PUBLIC_MAINNET_RPC_URL` | No | Client-side mainnet RPC |
 | `DEVNET_RPC_URL` | No | Server-side devnet RPC |
 | `MAINNET_RPC_URL` | No | Server-side mainnet RPC |
-| `CRON_SECRET` | No | Auth for `/api/cron` |
 
 ---
 
@@ -928,7 +921,7 @@ npm run db:studio    # Drizzle Studio (DB GUI)
 ### Infrastructure
 13. **gRPC keep-alive** — Critical for Layer33 endpoint. 120s interval, 10s timeout.
 14. **"channel closed" error** — Expected from gRPC NAPI binding on client GC. Handled via unhandledRejection handler.
-15. **SSE on Vercel** — Vercel doesn't support WebSocket, hence SSE for real-time updates.
+15. **No SSE/WebSocket** — Dashboard uses shared TanStack Query data with 30s refetch interval instead of real-time streaming.
 
 ---
 
@@ -971,8 +964,9 @@ interface Computation {
   address, computationOffset, clusterOffset, payer, mxeProgramId,
   status: ComputationStatus, isScaffold,
   queuedAt, executingAt, finalizedAt, failedAt,
-  queueTxSig, finalizeTxSig, network,
-  createdAt, updatedAt
+  queueTxSig, finalizeTxSig,
+  callbackErrorCode: number | null,  // 0=OK, >0=Arcium error, null=unchecked
+  network, createdAt, updatedAt
 }
 
 interface Program {
