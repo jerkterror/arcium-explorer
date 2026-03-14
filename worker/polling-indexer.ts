@@ -18,7 +18,7 @@ const ENTITY_TYPES: AccountTypeName[] = [
   "ComputationAccount",
 ];
 
-const RPC_TIMEOUT_MS = 30_000;
+const RPC_TIMEOUT_MS = 120_000;
 
 async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout>;
@@ -99,6 +99,7 @@ export class PollingIndexer {
   private intervalMs: number;
   private timer: ReturnType<typeof setInterval> | null = null;
   private running = false;
+  private polling = false;
 
   constructor(config: PollingIndexerConfig) {
     this.connection = new Connection(config.rpcUrl, { commitment: "confirmed" });
@@ -107,28 +108,39 @@ export class PollingIndexer {
   }
 
   async pollOnce(): Promise<Record<string, number>> {
-    const results: Record<string, number> = {};
-
-    for (const entityType of ENTITY_TYPES) {
-      try {
-        results[entityType] = await pollEntityType(
-          this.connection,
-          entityType,
-          this.network
-        );
-      } catch (error) {
-        log.error(`Failed to poll ${entityType}`, {
-          network: this.network,
-          error: error instanceof Error ? error.message : String(error),
-        });
-        results[entityType] = 0;
-      }
+    if (this.polling) {
+      log.debug("Poll cycle skipped (previous still running)", { network: this.network });
+      return {};
     }
+    this.polling = true;
 
-    const total = Object.values(results).reduce((a, b) => a + b, 0);
-    log.info("Poll cycle complete", { network: this.network, total, results });
+    try {
+      const results: Record<string, number> = {};
 
-    return results;
+      for (const entityType of ENTITY_TYPES) {
+        if (!this.running) break;
+        try {
+          results[entityType] = await pollEntityType(
+            this.connection,
+            entityType,
+            this.network
+          );
+        } catch (error) {
+          log.error(`Failed to poll ${entityType}`, {
+            network: this.network,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          results[entityType] = 0;
+        }
+      }
+
+      const total = Object.values(results).reduce((a, b) => a + b, 0);
+      log.info("Poll cycle complete", { network: this.network, total, results });
+
+      return results;
+    } finally {
+      this.polling = false;
+    }
   }
 
   start(): void {

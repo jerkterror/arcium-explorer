@@ -21,6 +21,11 @@ export class GrpcSubscriber {
   private reconnectDelay = 1000;
   private readonly MAX_RECONNECT_DELAY = 60_000;
   private client: Client | null = null;
+  private accountsProcessed = 0;
+  private lastLogTime = Date.now();
+
+  private static readonly CONNECT_TIMEOUT_MS = 30_000;
+  private static readonly HEALTH_LOG_INTERVAL_MS = 5 * 60_000;
 
   constructor(config: GrpcSubscriberConfig) {
     this.endpoint = config.endpoint;
@@ -68,10 +73,26 @@ export class GrpcSubscriber {
     return this.client;
   }
 
+  private async withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+    let timer: ReturnType<typeof setTimeout>;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`${label} timeout after ${ms}ms`)), ms);
+    });
+    try {
+      return await Promise.race([promise, timeout]);
+    } finally {
+      clearTimeout(timer!);
+    }
+  }
+
   private async subscribe(): Promise<void> {
     const client = this.ensureClient();
 
-    await client.connect();
+    await this.withTimeout(
+      client.connect(),
+      GrpcSubscriber.CONNECT_TIMEOUT_MS,
+      "gRPC connect"
+    );
     log.info("gRPC connected", { endpoint: this.endpoint });
 
     const stream = await client.subscribe();
@@ -101,8 +122,6 @@ export class GrpcSubscriber {
     // Reset reconnect delay on successful subscription
     this.reconnectDelay = 1000;
 
-    let accountsProcessed = 0;
-
     await new Promise<void>((resolve, reject) => {
       stream.on("data", async (update: Record<string, unknown>) => {
         try {
@@ -128,12 +147,16 @@ export class GrpcSubscriber {
               network: this.network,
             });
 
-            accountsProcessed++;
-            if (accountsProcessed % 100 === 0) {
-              log.info("gRPC accounts processed", {
-                count: accountsProcessed,
+            this.accountsProcessed++;
+
+            // Periodic health log
+            const now = Date.now();
+            if (now - this.lastLogTime >= GrpcSubscriber.HEALTH_LOG_INTERVAL_MS) {
+              log.info("gRPC health", {
                 network: this.network,
+                totalProcessed: this.accountsProcessed,
               });
+              this.lastLogTime = now;
             }
           }
         } catch (error) {
