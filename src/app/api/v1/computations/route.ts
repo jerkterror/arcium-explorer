@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { eq, and, desc, count } from "drizzle-orm";
+import { eq, and, desc, count, sql } from "drizzle-orm";
 import { getNetwork, getPagination, jsonResponse, errorResponse } from "@/lib/api-helpers";
 import type { ComputationStatus } from "@/types";
 
@@ -48,7 +48,7 @@ export async function GET(req: NextRequest) {
       .select()
       .from(computations)
       .where(whereClause)
-      .orderBy(desc(computations.createdAt))
+      .orderBy(desc(sql`COALESCE(${computations.queuedAt}, ${computations.createdAt})`))
       .limit(limit)
       .offset(offset);
 
