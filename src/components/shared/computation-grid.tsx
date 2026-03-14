@@ -3,7 +3,6 @@
 import { useRef, useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useNetwork } from "@/lib/hooks/use-network";
-import { getArciumError } from "@/lib/arcium-errors";
 import { truncateAddress, timeAgo } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import type { SharedComputation } from "./computation-types";
@@ -231,7 +230,6 @@ function GridTooltip({
     tile.status === "finalized" || tile.status === "failed";
   const hasError =
     tile.callbackErrorCode !== null && tile.callbackErrorCode > 0;
-  const error = hasError ? getArciumError(tile.callbackErrorCode!) : null;
 
   return (
     <div
@@ -270,10 +268,8 @@ function GridTooltip({
           <span>
             {!hasCallback
               ? "Pending"
-              : hasError && error
-              ? `Error: ${error.name} (${tile.callbackErrorCode}) — ${error.msg}`
               : hasError
-              ? `Error code ${tile.callbackErrorCode}`
+              ? `Callback error (${tile.callbackErrorCode})`
               : `OK${tile.finalizedAt ? ` · ${new Date(tile.finalizedAt).toLocaleString()}` : ""}`}
           </span>
         </div>
