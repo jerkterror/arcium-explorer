@@ -240,10 +240,12 @@ export async function upsertComputation(
     payer: parsed.payer,
     mxeProgramId: parsed.mxeProgramId,
     isScaffold: parsed.isScaffold,
-    queuedAt: parsed.queuedAt,
     executingAt: parsed.executingAt,
     network,
     updatedAt: new Date(),
+    // Only overwrite queuedAt if the parser actually resolved it;
+    // gRPC/WS subscribers pass null and would erase enricher-set timestamps
+    ...(parsed.queuedAt ? { queuedAt: parsed.queuedAt } : {}),
   };
 
   if (existing.length > 0) {

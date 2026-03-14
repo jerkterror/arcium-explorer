@@ -106,6 +106,7 @@ export class TxEnricher {
           address: schema.computations.address,
           status: schema.computations.status,
           queueTxSig: schema.computations.queueTxSig,
+          queuedAt: schema.computations.queuedAt,
           finalizeTxSig: schema.computations.finalizeTxSig,
           callbackErrorCode: schema.computations.callbackErrorCode,
         })
@@ -130,7 +131,9 @@ export class TxEnricher {
                 eq(schema.computations.status, "queued"),
                 isNotNull(schema.computations.queueTxSig),
                 isNull(schema.computations.finalizeTxSig)
-              )
+              ),
+              // Backfill: rows missing on-chain timestamp (queuedAt not resolved yet)
+              isNull(schema.computations.queuedAt)
             )
           )
         )
@@ -169,6 +172,7 @@ export class TxEnricher {
           let finalizeSig: string | null = null;
           let callbackErrorCode: number | null = null;
           let callbackSucceeded = false;
+          let callbackBlockTime: number | null = null;
 
           if (sigs.length > 1) {
             // sigs are newest-first, so iterate from second-oldest (index len-2) toward newest
@@ -180,6 +184,7 @@ export class TxEnricher {
               if (errCode === ALREADY_CALLBACKED_CODE) continue;
 
               finalizeSig = sig.signature;
+              callbackBlockTime = sig.blockTime ?? null;
               if (sig.err) {
                 // Real error — callback failed
                 callbackErrorCode = errCode;
@@ -193,6 +198,7 @@ export class TxEnricher {
 
           const updates: Partial<{
             queueTxSig: string;
+            queuedAt: Date;
             finalizeTxSig: string;
             callbackErrorCode: number;
             status: "queued" | "executing" | "finalized" | "failed";
@@ -205,17 +211,27 @@ export class TxEnricher {
             updates.queueTxSig = queueSig;
           }
 
+          // Set queuedAt from queue transaction's on-chain block time
+          if (!row.queuedAt) {
+            const queueBlockTime = sigs[sigs.length - 1].blockTime;
+            if (queueBlockTime) {
+              updates.queuedAt = new Date(queueBlockTime * 1000);
+            }
+          }
+
           if (finalizeSig) {
             if (!row.finalizeTxSig) {
               updates.finalizeTxSig = finalizeSig;
             }
+
+            const txTime = callbackBlockTime ? new Date(callbackBlockTime * 1000) : new Date();
 
             if (callbackErrorCode !== null && row.callbackErrorCode === null) {
               updates.callbackErrorCode = callbackErrorCode;
               // Mark as failed if we found a real error
               if (row.status !== "failed") {
                 updates.status = "failed";
-                updates.failedAt = new Date();
+                updates.failedAt = txTime;
               }
             } else if (callbackSucceeded) {
               if (row.callbackErrorCode === null) {
@@ -225,7 +241,7 @@ export class TxEnricher {
               // Fix stale "queued" status — callback succeeded means it's finalized
               if (row.status === "queued") {
                 updates.status = "finalized";
-                updates.finalizedAt = new Date();
+                updates.finalizedAt = txTime;
                 log.info("Fixed stale queued computation → finalized", {
                   address: row.address,
                 });

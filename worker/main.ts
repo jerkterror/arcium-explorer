@@ -78,7 +78,7 @@ async function main(): Promise<void> {
       const mainnetEnricher = new TxEnricher({
         rpcUrl: MAINNET_ENRICHER_RPC_URL,
         network: "mainnet",
-        batchSize: 10,
+        batchSize: 50,
         rateLimitMs: 200,
       });
       mainnetEnricher.start();
