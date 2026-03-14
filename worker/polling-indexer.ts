@@ -1,4 +1,5 @@
 import { Connection } from "@solana/web3.js";
+import { eq } from "drizzle-orm";
 import { ARCIUM_PROGRAM_ID } from "@/lib/constants";
 import { DISCRIMINATORS, type AccountTypeName } from "@/lib/indexer/discriminators";
 import { processAccountUpdate } from "./account-processor";
@@ -18,7 +19,36 @@ const ENTITY_TYPES: AccountTypeName[] = [
   "ComputationAccount",
 ];
 
+// Entity types small enough to always re-process (may have changed on-chain)
+const ALWAYS_REPROCESS: Set<AccountTypeName> = new Set([
+  "Cluster",
+  "ArxNode",
+  "MXEAccount",
+  "ComputationDefinitionAccount",
+]);
+
 const RPC_TIMEOUT_MS = 120_000;
+
+// Lazy db import to avoid errors when DATABASE_URL is missing at build time
+async function getDb() {
+  const { db } = await import("@/lib/db");
+  const schema = await import("@/lib/db/schema");
+  return { db, schema };
+}
+
+async function getKnownAddresses(entityType: AccountTypeName, network: Network): Promise<Set<string>> {
+  const { db, schema } = await getDb();
+  const tableMap = {
+    Cluster: schema.clusters,
+    ArxNode: schema.arxNodes,
+    MXEAccount: schema.mxeAccounts,
+    ComputationDefinitionAccount: schema.computationDefinitions,
+    ComputationAccount: schema.computations,
+  } as const;
+  const table = tableMap[entityType];
+  const rows = await db.select({ address: table.address }).from(table).where(eq(table.network, network));
+  return new Set(rows.map(r => r.address));
+}
 
 async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout>;
@@ -69,34 +99,50 @@ async function pollEntityType(
   connection: Connection,
   entityType: AccountTypeName,
   network: Network
-): Promise<number> {
+): Promise<{ processed: number; skipped: number }> {
   const discriminator = DISCRIMINATORS[entityType];
 
   const accounts = await fetchWithRetry(connection, discriminator);
 
+  // For large entity types (ComputationAccount), only process NEW accounts
+  let knownAddresses: Set<string> | null = null;
+  if (!ALWAYS_REPROCESS.has(entityType)) {
+    knownAddresses = await getKnownAddresses(entityType, network);
+  }
+
   let processed = 0;
+  let skipped = 0;
   for (const { pubkey, account } of accounts) {
+    const address = pubkey.toBase58();
+
+    if (knownAddresses && knownAddresses.has(address)) {
+      skipped++;
+      continue;
+    }
+
     const result = await processAccountUpdate({
-      address: pubkey.toBase58(),
+      address,
       data: account.data,
       network,
     });
     if (result) processed++;
   }
 
-  return processed;
+  return { processed, skipped };
 }
 
 export interface PollingIndexerConfig {
   rpcUrl: string;
   network: Network;
   intervalMs: number;
+  startDelayMs?: number;
 }
 
 export class PollingIndexer {
   private connection: Connection;
   private network: Network;
   private intervalMs: number;
+  private startDelayMs: number;
   private timer: ReturnType<typeof setInterval> | null = null;
   private running = false;
   private polling = false;
@@ -105,9 +151,10 @@ export class PollingIndexer {
     this.connection = new Connection(config.rpcUrl, { commitment: "confirmed" });
     this.network = config.network;
     this.intervalMs = config.intervalMs;
+    this.startDelayMs = config.startDelayMs ?? 0;
   }
 
-  async pollOnce(): Promise<Record<string, number>> {
+  async pollOnce(): Promise<Record<string, { processed: number; skipped: number }>> {
     if (this.polling) {
       log.debug("Poll cycle skipped (previous still running)", { network: this.network });
       return {};
@@ -115,7 +162,7 @@ export class PollingIndexer {
     this.polling = true;
 
     try {
-      const results: Record<string, number> = {};
+      const results: Record<string, { processed: number; skipped: number }> = {};
 
       for (const entityType of ENTITY_TYPES) {
         if (!this.running) break;
@@ -130,12 +177,18 @@ export class PollingIndexer {
             network: this.network,
             error: error instanceof Error ? error.message : String(error),
           });
-          results[entityType] = 0;
+          results[entityType] = { processed: 0, skipped: 0 };
         }
       }
 
-      const total = Object.values(results).reduce((a, b) => a + b, 0);
-      log.info("Poll cycle complete", { network: this.network, total, results });
+      const totalProcessed = Object.values(results).reduce((a, b) => a + b.processed, 0);
+      const totalSkipped = Object.values(results).reduce((a, b) => a + b.skipped, 0);
+      log.info("Poll cycle complete", {
+        network: this.network,
+        totalProcessed,
+        totalSkipped,
+        results,
+      });
 
       return results;
     } finally {
@@ -150,19 +203,31 @@ export class PollingIndexer {
     log.info("Polling indexer started", {
       network: this.network,
       intervalMs: this.intervalMs,
+      startDelayMs: this.startDelayMs,
     });
 
-    // Run immediately, then on interval
-    this.pollOnce().catch((err) =>
-      log.error("Initial poll failed", { error: String(err) })
-    );
-
-    this.timer = setInterval(() => {
-      if (!this.running) return;
+    const beginPolling = () => {
+      // Run immediately, then on interval
       this.pollOnce().catch((err) =>
-        log.error("Poll cycle failed", { error: String(err) })
+        log.error("Initial poll failed", { error: String(err) })
       );
-    }, this.intervalMs);
+
+      this.timer = setInterval(() => {
+        if (!this.running) return;
+        this.pollOnce().catch((err) =>
+          log.error("Poll cycle failed", { error: String(err) })
+        );
+      }, this.intervalMs);
+    };
+
+    if (this.startDelayMs > 0) {
+      log.info("Delaying first poll", { network: this.network, delayMs: this.startDelayMs });
+      setTimeout(() => {
+        if (this.running) beginPolling();
+      }, this.startDelayMs);
+    } else {
+      beginPolling();
+    }
   }
 
   stop(): void {

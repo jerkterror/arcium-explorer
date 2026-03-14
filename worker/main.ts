@@ -123,6 +123,7 @@ async function main(): Promise<void> {
       rpcUrl: DEVNET_RPC_URL,
       network: "devnet",
       intervalMs: DEVNET_POLL_INTERVAL,
+      startDelayMs: Math.floor(DEVNET_POLL_INTERVAL / 2),
     });
     devnetPoller.start();
     services.push(devnetPoller);

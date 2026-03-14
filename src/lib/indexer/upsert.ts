@@ -1,4 +1,4 @@
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import type { Network } from "@/types";
 import { deriveClusterOffset, deriveArxNodeOffset } from "@/lib/solana/pda";
 import type {
@@ -23,46 +23,36 @@ export async function upsertCluster(
 ): Promise<void> {
   const { db, schema } = await getDb();
 
-  const existing = await db
-    .select({ id: schema.clusters.id, offset: schema.clusters.offset })
-    .from(schema.clusters)
-    .where(
-      and(
-        eq(schema.clusters.address, address),
-        eq(schema.clusters.network, network)
-      )
-    )
-    .limit(1);
+  const derivedOffset = deriveClusterOffset(address) ?? 0;
 
-  const data = {
-    address,
-    clusterSize: parsed.clusterSize,
-    maxCapacity: parsed.maxCapacity,
-    cuPrice: parsed.cuPrice,
-    nodeOffsets: parsed.nodeOffsets,
-    blsPublicKey: parsed.blsPublicKey,
-    isActive: parsed.isActive,
-    network,
-    updatedAt: new Date(),
-  };
-
-  if (existing.length > 0) {
-    // If offset is still 0, try to derive it now
-    const needsOffset = existing[0].offset === 0;
-    const updateData = needsOffset
-      ? { ...data, offset: deriveClusterOffset(address) ?? 0 }
-      : data;
-    await db
-      .update(schema.clusters)
-      .set(updateData)
-      .where(eq(schema.clusters.id, existing[0].id));
-  } else {
-    const offset = deriveClusterOffset(address) ?? 0;
-    await db.insert(schema.clusters).values({
-      ...data,
-      offset,
+  await db
+    .insert(schema.clusters)
+    .values({
+      address,
+      offset: derivedOffset,
+      clusterSize: parsed.clusterSize,
+      maxCapacity: parsed.maxCapacity,
+      cuPrice: parsed.cuPrice,
+      nodeOffsets: parsed.nodeOffsets,
+      blsPublicKey: parsed.blsPublicKey,
+      isActive: parsed.isActive,
+      network,
+      updatedAt: new Date(),
+    })
+    .onConflictDoUpdate({
+      target: [schema.clusters.address, schema.clusters.network],
+      set: {
+        clusterSize: parsed.clusterSize,
+        maxCapacity: parsed.maxCapacity,
+        cuPrice: parsed.cuPrice,
+        nodeOffsets: parsed.nodeOffsets,
+        blsPublicKey: parsed.blsPublicKey,
+        isActive: parsed.isActive,
+        // Preserve existing offset if non-zero; otherwise use derived
+        offset: sql`CASE WHEN ${schema.clusters.offset} != 0 THEN ${schema.clusters.offset} ELSE ${derivedOffset} END`,
+        updatedAt: new Date(),
+      },
     });
-  }
 }
 
 export async function upsertArxNode(
@@ -72,46 +62,38 @@ export async function upsertArxNode(
 ): Promise<void> {
   const { db, schema } = await getDb();
 
-  const existing = await db
-    .select({ id: schema.arxNodes.id, offset: schema.arxNodes.offset })
-    .from(schema.arxNodes)
-    .where(
-      and(
-        eq(schema.arxNodes.address, address),
-        eq(schema.arxNodes.network, network)
-      )
-    )
-    .limit(1);
+  const derivedOffset = deriveArxNodeOffset(address) ?? 0;
 
-  const data = {
-    address,
-    authorityKey: parsed.authorityKey,
-    ip: parsed.ip,
-    clusterOffset: parsed.clusterOffset,
-    cuCapacityClaim: parsed.cuCapacityClaim,
-    isActive: parsed.isActive,
-    blsPublicKey: parsed.blsPublicKey,
-    x25519PublicKey: parsed.x25519PublicKey,
-    network,
-    updatedAt: new Date(),
-  };
-
-  if (existing.length > 0) {
-    const needsOffset = existing[0].offset === 0;
-    const updateData = needsOffset
-      ? { ...data, offset: deriveArxNodeOffset(address) ?? 0 }
-      : data;
-    await db
-      .update(schema.arxNodes)
-      .set(updateData)
-      .where(eq(schema.arxNodes.id, existing[0].id));
-  } else {
-    const offset = deriveArxNodeOffset(address) ?? 0;
-    await db.insert(schema.arxNodes).values({
-      ...data,
-      offset,
+  await db
+    .insert(schema.arxNodes)
+    .values({
+      address,
+      offset: derivedOffset,
+      authorityKey: parsed.authorityKey,
+      ip: parsed.ip,
+      clusterOffset: parsed.clusterOffset,
+      cuCapacityClaim: parsed.cuCapacityClaim,
+      isActive: parsed.isActive,
+      blsPublicKey: parsed.blsPublicKey,
+      x25519PublicKey: parsed.x25519PublicKey,
+      network,
+      updatedAt: new Date(),
+    })
+    .onConflictDoUpdate({
+      target: [schema.arxNodes.address, schema.arxNodes.network],
+      set: {
+        authorityKey: parsed.authorityKey,
+        ip: parsed.ip,
+        clusterOffset: parsed.clusterOffset,
+        cuCapacityClaim: parsed.cuCapacityClaim,
+        isActive: parsed.isActive,
+        blsPublicKey: parsed.blsPublicKey,
+        x25519PublicKey: parsed.x25519PublicKey,
+        // Preserve existing offset if non-zero; otherwise use derived
+        offset: sql`CASE WHEN ${schema.arxNodes.offset} != 0 THEN ${schema.arxNodes.offset} ELSE ${derivedOffset} END`,
+        updatedAt: new Date(),
+      },
     });
-  }
 }
 
 export async function upsertMXEAccount(
@@ -121,36 +103,29 @@ export async function upsertMXEAccount(
 ): Promise<void> {
   const { db, schema } = await getDb();
 
-  const existing = await db
-    .select({ id: schema.mxeAccounts.id })
-    .from(schema.mxeAccounts)
-    .where(
-      and(
-        eq(schema.mxeAccounts.address, address),
-        eq(schema.mxeAccounts.network, network)
-      )
-    )
-    .limit(1);
-
-  const data = {
-    address,
-    mxeProgramId: parsed.mxeProgramId,
-    clusterOffset: parsed.clusterOffset,
-    authority: parsed.authority,
-    x25519Pubkey: parsed.x25519Pubkey,
-    compDefOffsets: parsed.compDefOffsets,
-    network,
-    updatedAt: new Date(),
-  };
-
-  if (existing.length > 0) {
-    await db
-      .update(schema.mxeAccounts)
-      .set(data)
-      .where(eq(schema.mxeAccounts.id, existing[0].id));
-  } else {
-    await db.insert(schema.mxeAccounts).values(data);
-  }
+  await db
+    .insert(schema.mxeAccounts)
+    .values({
+      address,
+      mxeProgramId: parsed.mxeProgramId,
+      clusterOffset: parsed.clusterOffset,
+      authority: parsed.authority,
+      x25519Pubkey: parsed.x25519Pubkey,
+      compDefOffsets: parsed.compDefOffsets,
+      network,
+      updatedAt: new Date(),
+    })
+    .onConflictDoUpdate({
+      target: [schema.mxeAccounts.address, schema.mxeAccounts.network],
+      set: {
+        mxeProgramId: parsed.mxeProgramId,
+        clusterOffset: parsed.clusterOffset,
+        authority: parsed.authority,
+        x25519Pubkey: parsed.x25519Pubkey,
+        compDefOffsets: parsed.compDefOffsets,
+        updatedAt: new Date(),
+      },
+    });
 }
 
 export async function upsertComputationDefinition(
@@ -160,36 +135,29 @@ export async function upsertComputationDefinition(
 ): Promise<void> {
   const { db, schema } = await getDb();
 
-  const existing = await db
-    .select({ id: schema.computationDefinitions.id })
-    .from(schema.computationDefinitions)
-    .where(
-      and(
-        eq(schema.computationDefinitions.address, address),
-        eq(schema.computationDefinitions.network, network)
-      )
-    )
-    .limit(1);
-
-  const data = {
-    address,
-    mxeProgramId: parsed.mxeProgramId,
-    defOffset: parsed.defOffset,
-    cuAmount: parsed.cuAmount,
-    circuitLen: parsed.circuitLen,
-    sourceType: parsed.sourceType,
-    network,
-    updatedAt: new Date(),
-  };
-
-  if (existing.length > 0) {
-    await db
-      .update(schema.computationDefinitions)
-      .set(data)
-      .where(eq(schema.computationDefinitions.id, existing[0].id));
-  } else {
-    await db.insert(schema.computationDefinitions).values(data);
-  }
+  await db
+    .insert(schema.computationDefinitions)
+    .values({
+      address,
+      mxeProgramId: parsed.mxeProgramId,
+      defOffset: parsed.defOffset,
+      cuAmount: parsed.cuAmount,
+      circuitLen: parsed.circuitLen,
+      sourceType: parsed.sourceType,
+      network,
+      updatedAt: new Date(),
+    })
+    .onConflictDoUpdate({
+      target: [schema.computationDefinitions.address, schema.computationDefinitions.network],
+      set: {
+        mxeProgramId: parsed.mxeProgramId,
+        defOffset: parsed.defOffset,
+        cuAmount: parsed.cuAmount,
+        circuitLen: parsed.circuitLen,
+        sourceType: parsed.sourceType,
+        updatedAt: new Date(),
+      },
+    });
 }
 
 export async function upsertComputation(
@@ -291,32 +259,23 @@ export async function upsertProgram(
 ): Promise<void> {
   const { db, schema } = await getDb();
 
-  const existing = await db
-    .select({ id: schema.programs.id })
-    .from(schema.programs)
-    .where(
-      and(
-        eq(schema.programs.programId, programId),
-        eq(schema.programs.network, network)
-      )
-    )
-    .limit(1);
-
-  const data = {
-    programId,
-    mxeAddress,
-    compDefCount,
-    computationCount,
-    network,
-    updatedAt: new Date(),
-  };
-
-  if (existing.length > 0) {
-    await db
-      .update(schema.programs)
-      .set(data)
-      .where(eq(schema.programs.id, existing[0].id));
-  } else {
-    await db.insert(schema.programs).values(data);
-  }
+  await db
+    .insert(schema.programs)
+    .values({
+      programId,
+      mxeAddress,
+      compDefCount,
+      computationCount,
+      network,
+      updatedAt: new Date(),
+    })
+    .onConflictDoUpdate({
+      target: [schema.programs.programId, schema.programs.network],
+      set: {
+        mxeAddress,
+        compDefCount,
+        computationCount,
+        updatedAt: new Date(),
+      },
+    });
 }
