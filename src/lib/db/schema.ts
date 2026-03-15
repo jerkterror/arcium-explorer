@@ -157,6 +157,7 @@ export const computations = pgTable(
     index("computations_program_idx").on(table.mxeProgramId, table.network),
     index("computations_network_idx").on(table.network),
     index("computations_scaffold_idx").on(table.isScaffold, table.network),
+    index("computations_queued_at_idx").on(table.network, table.queuedAt),
   ]
 );
 
