@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useNetwork } from "@/lib/hooks/use-network";
 import { truncateAddress, timeAgo, formatTimestamp } from "@/lib/utils";
 import { cn } from "@/lib/utils";
+import { UNENRICHABLE_SENTINEL, getArciumError } from "@/lib/arcium-errors";
 import type { SharedComputation } from "./computation-types";
 
 // Phase colors — reference CSS variables so theme changes propagate
@@ -127,9 +128,9 @@ export const ComputationGrid = memo(function ComputationGrid({
             tile.callbackErrorCode !== null && tile.callbackErrorCode > 0;
           // Check callbackErrorCode directly too — covers the race window where
           // the enricher set the error code but the indexer overwrote status.
-          // Exclude -1 sentinel (unenrichable) from triggering the callback indicator.
+          // Exclude unenrichable sentinel from triggering the callback indicator.
           const hasCallback =
-            isFinalized || isFailed || (tile.callbackErrorCode !== null && tile.callbackErrorCode >= 0);
+            isFinalized || isFailed || (tile.callbackErrorCode !== null && tile.callbackErrorCode !== UNENRICHABLE_SENTINEL);
           const isHighlighted = highlightedAddress === tile.address;
           const timestamp = tile.queuedAt || tile.createdAt;
 
@@ -278,7 +279,7 @@ function GridTooltip({
             {!hasCallback
               ? "Pending"
               : hasError
-              ? `Callback error (${tile.callbackErrorCode})`
+              ? `Callback error: ${getArciumError(tile.callbackErrorCode!)?.name ?? tile.callbackErrorCode}`
               : `OK${tile.finalizedAt ? ` \u00b7 ${formatTimestamp(tile.finalizedAt)}` : ""}`}
           </span>
         </div>

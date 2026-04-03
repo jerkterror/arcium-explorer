@@ -1,5 +1,6 @@
 import { Connection, PublicKey } from "@solana/web3.js";
 import { createLogger } from "@/lib/logger";
+import { UNENRICHABLE_SENTINEL } from "@/lib/indexer/sdk-adapter";
 import { sleep } from "./utils";
 import type { Network } from "@/types";
 
@@ -40,7 +41,7 @@ export interface TxEnricherConfig {
   initialDelayMs?: number;
 }
 
-// Max consecutive failures before marking a row as unenrichable (-1 sentinel)
+// Max consecutive failures before marking a row as unenrichable
 const MAX_ENRICH_FAILURES = 3;
 
 export class TxEnricher {
@@ -142,8 +143,8 @@ export class TxEnricher {
         and(
           eq(schema.computations.network, this.network),
           eq(schema.computations.isScaffold, false),
-          // Exclude rows permanently marked as unenrichable (callbackErrorCode = -1)
-          or(isNull(schema.computations.callbackErrorCode), ne(schema.computations.callbackErrorCode, -1)),
+          // Exclude rows permanently marked as unenrichable
+          or(isNull(schema.computations.callbackErrorCode), ne(schema.computations.callbackErrorCode, UNENRICHABLE_SENTINEL)),
           or(
             isNull(schema.computations.queueTxSig),
             and(
@@ -319,7 +320,7 @@ export class TxEnricher {
           try {
             await db
               .update(schema.computations)
-              .set({ callbackErrorCode: -1, updatedAt: new Date() })
+              .set({ callbackErrorCode: UNENRICHABLE_SENTINEL, updatedAt: new Date() })
               .where(eq(schema.computations.id, row.id));
           } catch (dbErr) {
             log.error("Failed to mark unenrichable", {

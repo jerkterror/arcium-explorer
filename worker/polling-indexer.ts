@@ -1,7 +1,5 @@
 import { Connection } from "@solana/web3.js";
 import { eq } from "drizzle-orm";
-import { db } from "@/lib/db";
-import * as schema from "@/lib/db/schema";
 import { getDiscriminatorBytes, ARCIUM_PROGRAM, type AccountTypeName } from "@/lib/indexer/sdk-adapter";
 import { processAccountUpdate } from "./account-processor";
 import { createLogger } from "@/lib/logger";
@@ -23,7 +21,14 @@ const SEQUENTIAL_TYPES: AccountTypeName[] = ["ComputationAccount"];
 
 const RPC_TIMEOUT_MS = 120_000;
 
-function getTable(entityType: AccountTypeName) {
+// Lazy db import to avoid errors when DATABASE_URL is missing at build time
+async function getDb() {
+  const { db } = await import("@/lib/db");
+  const schema = await import("@/lib/db/schema");
+  return { db, schema };
+}
+
+function getTable(schema: Awaited<ReturnType<typeof getDb>>["schema"], entityType: AccountTypeName) {
   const tableMap = {
     Cluster: schema.clusters,
     ArxNode: schema.arxNodes,
@@ -35,7 +40,8 @@ function getTable(entityType: AccountTypeName) {
 }
 
 async function getKnownAddresses(entityType: AccountTypeName, network: Network): Promise<Set<string>> {
-  const table = getTable(entityType);
+  const { db, schema } = await getDb();
+  const table = getTable(schema, entityType);
   const rows = await db.select({ address: table.address }).from(table).where(eq(table.network, network));
   return new Set(rows.map(r => r.address));
 }

@@ -15,6 +15,9 @@ const log = createLogger("sdk-adapter");
 // Single coder instance — constructed from IDL, no provider needed
 const coder = new BorshAccountsCoder(ARCIUM_IDL);
 
+// Re-export client-safe constants (no Node.js deps, safe for "use client" components)
+export { UNENRICHABLE_SENTINEL, getArciumError } from "@/lib/arcium-errors";
+
 /** Arcium program PublicKey derived from the SDK IDL. Server-only. */
 export const ARCIUM_PROGRAM = new PublicKey(ARCIUM_ADDR);
 
